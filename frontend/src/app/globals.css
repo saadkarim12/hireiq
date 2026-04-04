@@ -1,0 +1,221 @@
+/* src/app/globals.css */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── CUSTOM PROPERTIES ─────────────────────────────────────────────────────── */
+:root {
+  --font-inter: 'Inter', system-ui, sans-serif;
+  --font-cairo: 'Cairo', system-ui, sans-serif;
+  --sidebar-width: 240px;
+  --topbar-height: 64px;
+  --panel-width: 640px;
+  --brand-navy: #0D1B2A;
+  --brand-gold: #C9A84C;
+  --brand-blue: #1A4A8A;
+}
+
+/* ── BASE RESETS ────────────────────────────────────────────────────────────── */
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+/* ── SCROLLBAR STYLING ─────────────────────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #F1F5F9;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #CBD5E1;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94A3B8;
+}
+
+/* ── ARABIC RTL SUPPORT ─────────────────────────────────────────────────────── */
+[dir="rtl"] {
+  font-family: var(--font-cairo);
+  text-align: right;
+}
+
+[lang="ar"] {
+  font-family: var(--font-cairo);
+}
+
+.arabic-text {
+  font-family: var(--font-cairo);
+  direction: rtl;
+  text-align: right;
+}
+
+/* ── COMPONENT UTILITIES ───────────────────────────────────────────────────── */
+@layer components {
+  /* Cards */
+  .card {
+    @apply bg-white rounded-lg border border-gray-200 shadow-card;
+  }
+
+  .card-hover {
+    @apply card hover:shadow-card-hover transition-shadow duration-200;
+  }
+
+  /* Buttons */
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-semibold
+           bg-brand-navy text-white rounded-lg hover:bg-opacity-90 active:bg-opacity-80
+           transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed
+           focus:outline-none focus:ring-2 focus:ring-brand-gold focus:ring-offset-2;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-semibold
+           bg-white text-brand-navy border border-gray-300 rounded-lg
+           hover:bg-gray-50 active:bg-gray-100 transition-all duration-150
+           disabled:opacity-50 disabled:cursor-not-allowed
+           focus:outline-none focus:ring-2 focus:ring-brand-blue focus:ring-offset-2;
+  }
+
+  .btn-danger {
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-semibold
+           bg-red-600 text-white rounded-lg hover:bg-red-700 active:bg-red-800
+           transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-gold {
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-semibold
+           bg-brand-gold text-brand-navy rounded-lg hover:bg-brand-gold-dark hover:text-white
+           transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 px-3 py-1.5 text-sm font-medium
+           text-gray-600 rounded-lg hover:bg-gray-100 transition-all duration-150;
+  }
+
+  /* Form Inputs */
+  .input {
+    @apply w-full px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white
+           placeholder-gray-400 text-gray-900
+           focus:outline-none focus:ring-2 focus:ring-brand-blue focus:border-transparent
+           disabled:bg-gray-50 disabled:text-gray-500;
+  }
+
+  .input-error {
+    @apply input border-red-400 focus:ring-red-400;
+  }
+
+  .label {
+    @apply block text-sm font-semibold text-gray-700 mb-1.5;
+  }
+
+  .label-required::after {
+    content: ' *';
+    @apply text-red-500;
+  }
+
+  .error-text {
+    @apply text-xs text-red-600 mt-1;
+  }
+
+  /* Pipeline Stage Badges */
+  .stage-badge {
+    @apply inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold;
+  }
+
+  /* Score Badges */
+  .score-high { @apply bg-score-high-bg text-score-high; }
+  .score-mid  { @apply bg-score-mid-bg text-score-mid; }
+  .score-low  { @apply bg-score-low-bg text-score-low; }
+
+  /* Skeleton Loading */
+  .skeleton {
+    @apply animate-pulse bg-gray-200 rounded;
+  }
+
+  /* Page Header */
+  .page-header {
+    @apply flex items-center justify-between mb-6;
+  }
+
+  .page-title {
+    @apply text-2xl font-bold text-brand-navy;
+  }
+
+  .page-subtitle {
+    @apply text-sm text-gray-500 mt-0.5;
+  }
+}
+
+/* ── KANBAN BOARD ──────────────────────────────────────────────────────────── */
+.kanban-board {
+  display: flex;
+  gap: 16px;
+  overflow-x: auto;
+  padding-bottom: 16px;
+  min-height: calc(100vh - 200px);
+}
+
+.kanban-column {
+  flex: 0 0 280px;
+  min-height: 200px;
+}
+
+.kanban-card {
+  cursor: grab;
+  user-select: none;
+}
+
+.kanban-card:active {
+  cursor: grabbing;
+}
+
+.kanban-card.dragging {
+  opacity: 0.5;
+  transform: rotate(2deg);
+}
+
+/* ── WHATSAPP TRANSCRIPT ────────────────────────────────────────────────────── */
+.wa-bubble-out {
+  @apply bg-green-100 rounded-2xl rounded-tr-sm px-4 py-2.5 max-w-xs ml-auto;
+}
+
+.wa-bubble-in {
+  @apply bg-white border border-gray-200 rounded-2xl rounded-tl-sm px-4 py-2.5 max-w-xs;
+}
+
+/* ── ANIMATIONS ─────────────────────────────────────────────────────────────── */
+.slide-panel-enter {
+  animation: slideInRight 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.slide-panel-exit {
+  animation: slideOutRight 0.2s ease-in;
+}
+
+@keyframes slideInRight {
+  from { transform: translateX(100%); }
+  to   { transform: translateX(0); }
+}
+
+@keyframes slideOutRight {
+  from { transform: translateX(0); }
+  to   { transform: translateX(100%); }
+}
+
+/* ── PRINT STYLES ───────────────────────────────────────────────────────────── */
+@media print {
+  .no-print { display: none !important; }
+  .sidebar  { display: none !important; }
+  body { font-size: 12pt; }
+}

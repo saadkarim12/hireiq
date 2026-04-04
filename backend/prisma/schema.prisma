@@ -1,0 +1,307 @@
+// prisma/schema.prisma
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [uuidOssp(map: "uuid-ossp"), vector]
+}
+
+// ── ENUMS ─────────────────────────────────────────────────────────────────────
+
+enum SubscriptionTier {
+  pilot
+  starter
+  growth
+  enterprise
+}
+
+enum UserRole {
+  hireiq_admin
+  agency_admin
+  senior_recruiter
+  recruiter
+  viewer
+}
+
+enum UserStatus {
+  invited
+  active
+  disabled
+}
+
+enum JobStatus {
+  draft
+  active
+  paused
+  closed
+}
+
+enum JobType {
+  onsite
+  hybrid
+  remote
+}
+
+enum Currency {
+  AED
+  SAR
+  USD
+}
+
+enum PipelineStage {
+  applied
+  screening
+  cv_received
+  evaluated
+  shortlisted
+  interviewing
+  offered
+  hired
+  rejected
+  withdrawn
+  held
+}
+
+enum ConversationState {
+  initiated
+  language_selection
+  consent_pending
+  screening_q1
+  screening_q2
+  screening_q3
+  screening_q4
+  screening_q5
+  screening_q6
+  cv_requested
+  cv_received
+  profile_collection
+  processing
+  shortlisted
+  slots_requested
+  scheduled
+  completed
+  timeout
+}
+
+enum MessageDirection {
+  inbound
+  outbound
+}
+
+enum AuthenticityFlag {
+  none
+  low
+  medium
+  high
+}
+
+enum InterviewStatus {
+  awaiting_slots
+  confirmed
+  reminder_sent
+  completed
+  no_show
+  cancelled
+}
+
+// ── MODELS ────────────────────────────────────────────────────────────────────
+
+model Agency {
+  id                String           @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  name              String           @db.VarChar(200)
+  slug              String           @unique @db.VarChar(100)
+  logoUrl           String?          @map("logo_url")
+  waNumber          String?          @unique @map("wa_number") @db.VarChar(20)
+  waApiKey          String?          @map("wa_api_key")
+  waWebhookSecret   String?          @map("wa_webhook_secret")
+  emailFromName     String?          @map("email_from_name") @db.VarChar(200)
+  emailFromAddress  String?          @map("email_from_address") @db.VarChar(300)
+  subscriptionTier  SubscriptionTier @default(pilot) @map("subscription_tier")
+  subscriptionStart DateTime?        @map("subscription_start")
+  isActive          Boolean          @default(true) @map("is_active")
+  createdAt         DateTime         @default(now()) @map("created_at")
+  updatedAt         DateTime         @updatedAt @map("updated_at")
+
+  users      User[]
+  jobs       Job[]
+  candidates Candidate[]
+
+  @@map("agencies")
+}
+
+model User {
+  id             String     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  agencyId       String     @map("agency_id") @db.Uuid
+  azureOid       String?    @map("azure_oid") @db.VarChar(100)
+  email          String     @db.VarChar(300)
+  fullName       String     @map("full_name") @db.VarChar(200)
+  role           UserRole
+  avatarUrl      String?    @map("avatar_url")
+  status         UserStatus @default(invited)
+  inviteToken    String?    @map("invite_token") @db.VarChar(100)
+  inviteExpiresAt DateTime? @map("invite_expires_at")
+  lastLoginAt    DateTime?  @map("last_login_at")
+  createdAt      DateTime   @default(now()) @map("created_at")
+
+  agency Agency @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  jobs   Job[]
+
+  @@unique([agencyId, email])
+  @@map("users")
+}
+
+model Job {
+  id                  String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  agencyId            String    @map("agency_id") @db.Uuid
+  recruiterId         String    @map("recruiter_id") @db.Uuid
+  title               String    @db.VarChar(300)
+  hiringCompany       String    @map("hiring_company") @db.VarChar(300)
+  locationCountry     String    @map("location_country") @db.VarChar(10)
+  locationCity        String    @map("location_city") @db.VarChar(100)
+  jobType             JobType   @map("job_type")
+  salaryMin           Int       @map("salary_min")
+  salaryMax           Int       @map("salary_max")
+  currency            Currency  @default(AED)
+  requiredSkills      String[]  @map("required_skills")
+  preferredSkills     String[]  @default([]) @map("preferred_skills")
+  minExperienceYears  Int       @default(0) @map("min_experience_years")
+  requiredLanguages   String[]  @map("required_languages")
+  jdText              String    @map("jd_text")
+  extractedCriteria   Json?     @map("extracted_criteria")
+  screeningQuestions  Json?     @map("screening_questions")
+  applyUrlSlug        String    @unique @map("apply_url_slug") @db.VarChar(100)
+  waShortcode         String    @unique @map("wa_shortcode") @db.VarChar(20)
+  status              JobStatus @default(draft)
+  closingDate         DateTime? @map("closing_date")
+  shortlistThreshold  Int       @default(20) @map("shortlist_threshold")
+  activatedAt         DateTime? @map("activated_at")
+  closedAt            DateTime? @map("closed_at")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  agency     Agency      @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  recruiter  User        @relation(fields: [recruiterId], references: [id])
+  candidates Candidate[]
+  interviews Interview[]
+
+  @@index([agencyId, status])
+  @@index([recruiterId])
+  @@map("jobs")
+}
+
+model Candidate {
+  id                          String            @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  agencyId                    String            @map("agency_id") @db.Uuid
+  jobId                       String            @map("job_id") @db.Uuid
+  waNumberHash                String            @map("wa_number_hash") @db.VarChar(64)
+  waNumberEncrypted           String            @map("wa_number_encrypted")
+  preferredLanguage           String?           @map("preferred_language") @db.VarChar(10)
+  consentGiven                Boolean           @default(false) @map("consent_given")
+  consentTimestamp            DateTime?         @map("consent_timestamp")
+  consentMessageId            String?           @map("consent_message_id") @db.VarChar(100)
+  fullName                    String?           @map("full_name") @db.VarChar(300)
+  email                       String?           @db.VarChar(300)
+  currentRole                 String?           @map("current_role") @db.VarChar(300)
+  yearsExperience             Int?              @map("years_experience") @db.SmallInt
+  salaryExpectation           Int?              @map("salary_expectation")
+  noticePeriodDays            Int?              @map("notice_period_days") @db.SmallInt
+  visaStatus                  String?           @map("visa_status") @db.VarChar(50)
+  cvFileUrl                   String?           @map("cv_file_url")
+  cvStructured                Json?             @map("cv_structured")
+  cvType                      String?           @map("cv_type") @db.VarChar(20)
+  authenticityFlag            AuthenticityFlag  @default(none) @map("authenticity_flag")
+  commitmentScore             Int?              @map("commitment_score") @db.SmallInt
+  cvMatchScore                Int?              @map("cv_match_score") @db.SmallInt
+  salaryFitScore              Int?              @map("salary_fit_score") @db.SmallInt
+  compositeScore              Int?              @map("composite_score") @db.SmallInt
+  hardFilterPass              Boolean?          @map("hard_filter_pass")
+  hardFilterFailReason        String?           @map("hard_filter_fail_reason") @db.VarChar(200)
+  aiSummary                   String?           @map("ai_summary")
+  dataTags                    Json              @default("{}") @map("data_tags")
+  pipelineStage               PipelineStage     @default(applied) @map("pipeline_stage")
+  rejectionReason             String?           @map("rejection_reason") @db.VarChar(100)
+  recruiterNote               String?           @map("recruiter_note")
+  conversationState           ConversationState @default(initiated) @map("conversation_state")
+  conversationStateUpdatedAt  DateTime          @default(now()) @map("conversation_state_updated_at")
+  shortlistedAt               DateTime?         @map("shortlisted_at")
+  hiredAt                     DateTime?         @map("hired_at")
+  deletionScheduledAt         DateTime?         @map("deletion_scheduled_at")
+  sourceChannel               String?           @map("source_channel") @db.VarChar(50)
+  createdAt                   DateTime          @default(now()) @map("created_at")
+  updatedAt                   DateTime          @updatedAt @map("updated_at")
+
+  agency    Agency             @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  job       Job                @relation(fields: [jobId], references: [id])
+  messages  ScreeningMessage[]
+  interview Interview?
+
+  @@index([agencyId, jobId, pipelineStage])
+  @@index([agencyId, compositeScore(sort: Desc)])
+  @@index([deletionScheduledAt])
+  @@map("candidates")
+}
+
+model ScreeningMessage {
+  id             String           @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  candidateId    String           @map("candidate_id") @db.Uuid
+  agencyId       String           @map("agency_id") @db.Uuid
+  direction      MessageDirection
+  messageType    String           @map("message_type") @db.VarChar(30)
+  content        String
+  waMessageId    String?          @map("wa_message_id") @db.VarChar(100)
+  deliveryStatus String?          @map("delivery_status") @db.VarChar(20)
+  questionIndex  Int?             @map("question_index") @db.SmallInt
+  answerScore    Int?             @map("answer_score") @db.SmallInt
+  answerQuality  String?          @map("answer_quality") @db.VarChar(20)
+  createdAt      DateTime         @default(now()) @map("created_at")
+
+  candidate Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  @@index([candidateId, createdAt])
+  @@map("screening_messages")
+}
+
+model Interview {
+  id                    String          @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  candidateId           String          @unique @map("candidate_id") @db.Uuid
+  jobId                 String          @map("job_id") @db.Uuid
+  agencyId              String          @map("agency_id") @db.Uuid
+  recruiterId           String          @map("recruiter_id") @db.Uuid
+  scheduledAt           DateTime?       @map("scheduled_at")
+  candidateSlotsOffered Json?           @map("candidate_slots_offered")
+  status                InterviewStatus @default(awaiting_slots)
+  reminder48hSent       Boolean         @default(false) @map("reminder_48h_sent")
+  reminder24hSent       Boolean         @default(false) @map("reminder_24h_sent")
+  reminder4hSent        Boolean         @default(false) @map("reminder_4h_sent")
+  outcome               String?         @db.VarChar(30)
+  interviewNotes        String?         @map("interview_notes")
+  createdAt             DateTime        @default(now()) @map("created_at")
+  updatedAt             DateTime        @updatedAt @map("updated_at")
+
+  candidate Candidate @relation(fields: [candidateId], references: [id])
+  job       Job       @relation(fields: [jobId], references: [id])
+
+  @@index([agencyId, scheduledAt])
+  @@map("interviews")
+}
+
+model AuditLog {
+  id          BigInt   @id @default(autoincrement())
+  agencyId    String?  @map("agency_id") @db.Uuid
+  actorId     String?  @map("actor_id") @db.Uuid
+  actorType   String   @map("actor_type") @db.VarChar(20)
+  entityType  String   @map("entity_type") @db.VarChar(50)
+  entityId    String?  @map("entity_id") @db.Uuid
+  action      String   @db.VarChar(50)
+  beforeState Json?    @map("before_state")
+  afterState  Json?    @map("after_state")
+  ipAddress   String?  @map("ip_address") @db.VarChar(45)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([agencyId, entityType, createdAt])
+  @@map("audit_log")
+}

@@ -1,0 +1,16 @@
+# Dependencies
+node_modules/
+.next/
+dist/
+
+# Environment files — NEVER commit these
+.env
+.env.local
+.env.production
+
+# Build outputs
+build/
+*.zip
+
+# Mac files
+.DS_Store
