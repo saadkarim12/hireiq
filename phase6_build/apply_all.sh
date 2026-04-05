@@ -1,3 +1,8 @@
+#!/bin/bash
+echo "🔨 Applying Phase 6b/6c/6d changes to ~/hireiq..."
+
+# Backend: score-candidate with evidence
+cat > ~/hireiq/backend/src/ai-engine/routes/score-candidate.ts << 'TSEOF'
 import { Router } from 'express'
 import { callClaudeWithTool } from '../claude-client'
 import { prisma } from '../../shared/db'
@@ -176,3 +181,51 @@ function calcDiff(a: string, b: string): number {
   wb.forEach(w => { if (!wa.has(w)) changed++ })
   return Math.min(100, Math.round((changed / Math.max(wa.size, wb.size)) * 100))
 }
+TSEOF
+
+echo "✅ score-candidate.ts updated"
+
+# Update start.sh with token auto-refresh
+cat > ~/hireiq/start.sh << 'STARTEOF'
+#!/bin/bash
+export PATH="$PATH:/Applications/Docker.app/Contents/Resources/bin"
+echo "🚀 Starting HireIQ..."
+docker start hireiq-postgres 2>/dev/null && echo "✅ PostgreSQL" || echo "✅ PostgreSQL already running"
+sleep 2
+echo "🔑 Refreshing token..."
+python3 -c "
+import subprocess,json,os,re
+r=subprocess.run(['curl','-s','-X','POST','http://localhost:3001/api/v1/auth/dev-login','-H','Content-Type: application/json','-d','{\"email\":\"admin@saltrecruitment.ae\"}'],capture_output=True,text=True)
+try:
+    token=json.loads(r.stdout)['data']['accessToken']
+    path=os.path.expanduser('~/hireiq/frontend/src/api/client.ts')
+    content=open(path).read()
+    content=re.sub(r\"const DEV_TOKEN = '.*'\",f\"const DEV_TOKEN = '{token}'\",content)
+    open(path,'w').write(content)
+    print('✅ Token refreshed')
+except: print('⚠️  Token refresh after backend starts')
+"
+echo ""
+echo "🔧 Starting backend services..."
+echo "   API :3001  |  AI :3002  |  WA :3003  |  Sched :3004"
+echo "📱  WhatsApp simulator → http://localhost:3003/mock"
+echo "🖥️   Frontend (new tab) → cd ~/hireiq/frontend && npm run dev"
+echo ""
+cd ~/hireiq/backend && npx concurrently \
+  --names "API,AI,WA,SCHED" \
+  --prefix-colors "cyan,magenta,green,yellow" \
+  "npx ts-node src/core-api/index.ts" \
+  "npx ts-node src/ai-engine/index.ts" \
+  "npx ts-node src/whatsapp-service/index.ts" \
+  "npx ts-node src/scheduler/index.ts"
+STARTEOF
+chmod +x ~/hireiq/start.sh
+echo "✅ start.sh updated"
+
+echo ""
+echo "✅ Phase 6b/6c/6d backend changes applied!"
+echo ""
+echo "Next: restart backend and frontend"
+echo "  1. Stop start.sh (Ctrl+C)"
+echo "  2. Run: ~/hireiq/start.sh"
+echo "  3. In new tab: cd ~/hireiq/frontend && npm run dev"

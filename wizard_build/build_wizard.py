@@ -1,4 +1,9 @@
-'use client'
+import os
+
+path = os.path.expanduser('~/hireiq/frontend/src/app/(dashboard)/jobs/new/page.tsx')
+os.makedirs(os.path.dirname(path), exist_ok=True)
+
+content = r"""'use client'
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useForm } from 'react-hook-form'
@@ -152,7 +157,7 @@ export default function NewJobPage() {
     defaultValues: {
       locationCountry: 'AE', currency: 'AED', employmentType: 'permanent',
       jobType: 'onsite', visaRequirement: 'any', nationalityPref: 'any',
-      minExperienceYears: 3, salaryMin: 0, salaryMax: 0,
+      minExperienceYears: 3, salaryMin: 15000, salaryMax: 25000,
       requiredLanguages: ['English'], requiredSkills: [], preferredSkills: [],
       mustHaveSkills: [], niceToHaveSkills: [],
       autoApproveThreshold: 75, autoRejectThreshold: 40,
@@ -387,12 +392,12 @@ export default function NewJobPage() {
             </select>
           </div>
           <div>
-            <label className={labelCls}>Min Salary ({vals.currency}) <span className="text-gray-400 font-normal text-xs">per month</span></label>
-            <input type="number" {...register('salaryMin', {valueAsNumber:true})} className={inputCls} placeholder="e.g. 15,000" />
+            <label className={labelCls}>Min Salary ({vals.currency})</label>
+            <input type="number" {...register('salaryMin', {valueAsNumber:true})} className={inputCls} placeholder="15000" />
           </div>
           <div>
-            <label className={labelCls}>Max Salary ({vals.currency}) <span className="text-gray-400 font-normal text-xs">per month</span></label>
-            <input type="number" {...register('salaryMax', {valueAsNumber:true})} className={inputCls} placeholder="e.g. 25,000" />
+            <label className={labelCls}>Max Salary ({vals.currency})</label>
+            <input type="number" {...register('salaryMax', {valueAsNumber:true})} className={inputCls} placeholder="25000" />
           </div>
         </div>
 
@@ -499,11 +504,11 @@ export default function NewJobPage() {
                   Answer these 5 questions (takes ~3 minutes). AI will write a full bilingual JD from your answers.
                 </div>
                 {[
-                  { q: 'Q1 — Daily Responsibilities *', placeholder: 'What will this person do every day? e.g. Prepare monthly financial reports, build financial models for project feasibility, liaise with external auditors...', key: 'jdQ1', required: true },
-                  { q: 'Q2 — Essential Experience *', placeholder: 'What experience is non-negotiable? e.g. Minimum 5 years in financial analysis, strong IFRS knowledge, previous experience in real estate or construction...', key: 'jdQ2', required: true },
-                  { q: 'Q3 — Success in 6 Months', placeholder: 'What does a great hire achieve in their first 6 months? e.g. Owns the monthly close process independently, has built relationships with all department heads...', key: 'jdQ3', required: false },
-                  { q: 'Q4 — Team Culture', placeholder: 'Describe the team and working environment. e.g. Small collaborative finance team of 6, fast-paced, direct communication with CFO, hybrid working...', key: 'jdQ4', required: false },
-                  { q: 'Q5 — Industry Background', placeholder: 'Any specific industry required? e.g. Must have GCC real estate experience, banking or financial services preferred, open to any industry...', key: 'jdQ5', required: false },
+                  { q: 'Q1 *', placeholder: 'What will this person do every day? List 4-5 key responsibilities.', key: 'jdQ1', required: true },
+                  { q: 'Q2 *', placeholder: 'What experience is essential? (years, industry, specific skills)', key: 'jdQ2', required: true },
+                  { q: 'Q3', placeholder: 'What does success look like in 6 months?', key: 'jdQ3', required: false },
+                  { q: 'Q4', placeholder: 'Describe the team culture and working environment.', key: 'jdQ4', required: false },
+                  { q: 'Q5', placeholder: 'Any specific industry background required?', key: 'jdQ5', required: false },
                 ].map(({ q, placeholder, key, required }) => (
                   <div key={key}>
                     <label className={labelCls}>{q}</label>
@@ -774,3 +779,8 @@ export default function NewJobPage() {
     </div>
   )
 }
+"""
+
+with open(path, 'w') as f:
+    f.write(content)
+print(f"✅ Job creation wizard written: {len(content)} chars")
