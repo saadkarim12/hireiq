@@ -1,3 +1,21 @@
+python3 << 'EOF'
+import os
+path = os.path.expanduser('~/hireiq/start.sh')
+with open(path, 'r') as f:
+    content = f.read()
+
+if 'git pull' not in content:
+    content = content.replace(
+        'echo "🚀 Starting HireIQ..."',
+        'echo "🚀 Starting HireIQ..."\necho "📥 Pulling latest from GitHub..."\ncd ~/hireiq && git pull 2>/dev/null || echo "Already up to date"'
+    )
+    with open(path, 'w') as f:
+        f.write(content)
+    print('Added git pull to start.sh')
+else:
+    print('git pull already in start.sh')
+EOF
+
 #!/bin/bash
 export PATH="$PATH:/Applications/Docker.app/Contents/Resources/bin"
 echo "🚀 Starting HireIQ..."
