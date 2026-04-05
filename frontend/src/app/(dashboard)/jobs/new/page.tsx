@@ -421,7 +421,7 @@ export default function NewJobPage() {
         <div>
           <label className={labelCls}>Languages Required</label>
           <div className="flex gap-4">
-            {['English','Arabic','French'].map(lang => (
+            {['English','Arabic'].map(lang => (
               <label key={lang} className="flex items-center gap-2 cursor-pointer">
                 <input type="checkbox"
                   checked={vals.requiredLanguages?.includes(lang)}
