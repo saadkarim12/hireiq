@@ -164,3 +164,56 @@ candidatesRouter.get('/:id/transcript', async (req: AuthRequest, res) => {
     res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to get transcript' } })
   }
 })
+
+// ── CV DIFF — returning candidate comparison ──────────────────────────────────
+candidatesRouter.get('/:id/cv-diff', async (req: AuthRequest, res) => {
+  try {
+    const candidate = await prisma.candidate.findFirst({
+      where: { id: req.params.id, agencyId: req.user!.agencyId },
+    })
+    if (!candidate) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Not found' } })
+
+    const tags = candidate.dataTags as any
+    const returning = tags?.returningCandidate
+
+    if (!returning?.isReturning) {
+      return res.json({ success: true, data: { isReturning: false } })
+    }
+
+    const whereClause: any[] = [{ waNumberHash: candidate.waNumberHash }]
+    if (candidate.email) whereClause.push({ email: candidate.email })
+
+    const previous = await prisma.candidate.findFirst({
+      where: {
+        agencyId: req.user!.agencyId,
+        id: { not: candidate.id },
+        OR: whereClause,
+      },
+      include: { job: { select: { title: true, hiringCompany: true } } },
+      orderBy: { createdAt: 'desc' },
+    })
+
+    res.json({
+      success: true,
+      data: {
+        isReturning: true,
+        cvChangePercent: returning.cvChangePercent || 0,
+        current: {
+          skills: ((candidate.cvStructured as any)?.skills || []),
+          experience: candidate.yearsExperience,
+          currentRole: candidate.currentRole,
+        },
+        previous: previous ? {
+          jobTitle: (previous.job as any)?.title,
+          date: previous.createdAt.toISOString().split('T')[0],
+          status: previous.pipelineStage,
+          skills: ((previous.cvStructured as any)?.skills || []),
+          experience: previous.yearsExperience,
+          currentRole: previous.currentRole,
+        } : null,
+      },
+    })
+  } catch (err) {
+    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Failed' } })
+  }
+})

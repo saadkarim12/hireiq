@@ -117,12 +117,12 @@ ${screeningAnswers||'None yet'}`,
         hardFilterPass:       scores.hardFilterPass,
         hardFilterFailReason: scores.hardFilterFailReason||null,
         authenticityFlag:     scores.authenticityFlag||'none',
-        dataTags: {
+        dataTags: JSON.parse(JSON.stringify({
           ...(scores.dataTags||{}),
           evidence:           scores.evidence||{},
           parseConfidence:    scores.parseConfidence||75,
-          returningCandidate: returningInfo,
-        },
+          returningCandidate: returningInfo||null,
+        })),
         pipelineStage: 'evaluated',
       },
     })

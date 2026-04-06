@@ -571,109 +571,134 @@ export default function NewJobPage() {
   )
 
   // ─────────────────────────────────────────────────────────────────────────
-  // STEP 3: SCREENING CRITERIA
+  // ─────────────────────────────────────────────────────────────────────────
+  // STEP 3: SCREENING CRITERIA (simplified)
   // ─────────────────────────────────────────────────────────────────────────
   if (step === 3) return (
     <div className="max-w-2xl mx-auto">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold" style={{color:'#0A3D2E'}}>Post New Job</h1>
+        <h1 className="text-2xl font-bold" style={{color:"#0A3D2E"}}>Post New Job</h1>
         <p className="text-gray-500 text-sm mt-1">{vals.title} at {vals.hiringCompany}</p>
       </div>
       <StepIndicator step={3} total={4} />
-
       <div className="bg-white border border-gray-200 rounded-2xl p-6 space-y-6">
         <div>
-          <h2 className="text-lg font-semibold" style={{color:'#0A3D2E'}}>Screening Criteria</h2>
-          <p className="text-sm text-gray-500 mt-1">Define what automatically passes, what gets reviewed, and what gets rejected.</p>
+          <h2 className="text-lg font-semibold" style={{color:"#0A3D2E"}}>Screening Criteria</h2>
+          <p className="text-sm text-gray-500 mt-1">Review your auto-applied filters and set automation thresholds.</p>
         </div>
 
-        {/* Must-Have Skills */}
-        <div className="border-2 border-red-100 rounded-xl p-4">
-          <div className="flex items-center gap-2 mb-2">
-            <span className="w-5 h-5 rounded-full bg-red-100 text-red-600 text-xs flex items-center justify-center font-bold">✗</span>
-            <label className="text-sm font-semibold text-red-700">Must-Have Skills (Hard Reject)</label>
+        <div className="border border-gray-200 rounded-xl overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2" style={{background:"#F9FAFB"}}>
+            <span className="text-sm font-semibold text-gray-700">Hard Filters — auto-applied from Step 1</span>
+            <span className="text-xs px-2 py-0.5 rounded-full font-medium ml-auto" style={{background:"#DCFCE7",color:"#166534"}}>Automatic</span>
           </div>
-          <p className="text-xs text-red-500 mb-3">CV missing ANY of these → immediate rejection before scoring</p>
-          <TagInput
-            tags={vals.mustHaveSkills||[]}
-            onChange={v => setValue('mustHaveSkills', v)}
-            placeholder="e.g. IFRS, SAP, Python — press Enter after each"
-            color="#FEE2E2"
-          />
-          <p className="text-xs text-gray-400 mt-2">
-            Tip: Only add truly non-negotiable skills. Currently in Required Skills: {vals.requiredSkills?.join(', ')||'none'}
-          </p>
-        </div>
-
-        {/* Nice-to-Have Skills */}
-        <div className="border-2 border-amber-100 rounded-xl p-4">
-          <div className="flex items-center gap-2 mb-2">
-            <span className="w-5 h-5 rounded-full bg-amber-100 text-amber-600 text-xs flex items-center justify-center font-bold">+</span>
-            <label className="text-sm font-semibold text-amber-700">Nice-to-Have Skills (Score Boost)</label>
-          </div>
-          <p className="text-xs text-amber-600 mb-3">These boost the CV match score but do NOT reject candidates</p>
-          <TagInput
-            tags={vals.niceToHaveSkills||[]}
-            onChange={v => setValue('niceToHaveSkills', v)}
-            placeholder="e.g. Power BI, CFA, Tableau — press Enter after each"
-            color="#FEF3C7"
-          />
-        </div>
-
-        {/* Auto thresholds */}
-        <div>
-          <h3 className="text-sm font-semibold text-gray-700 mb-3">Automation Thresholds</h3>
-          <div className="grid grid-cols-3 gap-3">
-            <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-center">
-              <div className="text-xs text-green-600 font-medium mb-2">Score ≥</div>
-              <input type="number" value={vals.autoApproveThreshold}
-                onChange={e => setValue('autoApproveThreshold', parseInt(e.target.value)||75)}
-                min={1} max={100}
-                className="w-16 text-center text-xl font-bold text-green-700 bg-transparent border-b-2 border-green-300 outline-none" />
-              <div className="text-xs text-green-600 mt-2 font-medium">Auto-approve</div>
-              <div className="text-xs text-gray-400 mt-0.5">WhatsApp starts immediately</div>
-            </div>
-            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-center">
-              <div className="text-xs text-amber-600 font-medium mb-2">Score</div>
-              <div className="text-xl font-bold text-amber-700">
-                {vals.autoRejectThreshold}–{vals.autoApproveThreshold - 1}
+          <div className="p-4 space-y-3">
+            <div className="flex items-center justify-between py-2 border-b border-gray-50">
+              <div>
+                <p className="text-sm font-medium text-gray-700">Minimum experience</p>
+                <p className="text-xs text-gray-400">Candidates below this are rejected before scoring</p>
               </div>
-              <div className="text-xs text-amber-600 mt-2 font-medium">Amber Zone</div>
-              <div className="text-xs text-gray-400 mt-0.5">CV Review Dashboard</div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-bold" style={{color:"#0A3D2E"}}>{vals.minExperienceYears} years</span>
+                <button onClick={() => setStep(1)} className="text-xs text-blue-500 underline">Edit</button>
+              </div>
             </div>
-            <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-center">
-              <div className="text-xs text-red-600 font-medium mb-2">Score &lt;</div>
-              <input type="number" value={vals.autoRejectThreshold}
-                onChange={e => setValue('autoRejectThreshold', parseInt(e.target.value)||40)}
-                min={1} max={100}
-                className="w-16 text-center text-xl font-bold text-red-700 bg-transparent border-b-2 border-red-300 outline-none" />
-              <div className="text-xs text-red-600 mt-2 font-medium">Auto-reject</div>
-              <div className="text-xs text-gray-400 mt-0.5">Rejection email sent</div>
+            <div className="py-2 border-b border-gray-50">
+              <div className="flex items-center justify-between mb-2">
+                <div>
+                  <p className="text-sm font-medium text-gray-700">Required skills</p>
+                  <p className="text-xs text-gray-400">Missing any of these = automatic rejection</p>
+                </div>
+                <button onClick={() => setStep(1)} className="text-xs text-blue-500 underline">Edit</button>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {(vals.requiredSkills||[]).map((s: string) => (
+                  <span key={s} className="px-2.5 py-1 rounded-lg text-xs font-medium" style={{background:"#FEE2E2",color:"#991B1B"}}>✗ {s}</span>
+                ))}
+              </div>
+            </div>
+            {(vals.preferredSkills||[]).length > 0 && (
+              <div className="py-2 border-b border-gray-50">
+                <div className="flex items-center justify-between mb-2">
+                  <div>
+                    <p className="text-sm font-medium text-gray-700">Preferred skills</p>
+                    <p className="text-xs text-gray-400">Boost score — do not reject</p>
+                  </div>
+                  <button onClick={() => setStep(1)} className="text-xs text-blue-500 underline">Edit</button>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {(vals.preferredSkills||[]).map((s: string) => (
+                    <span key={s} className="px-2.5 py-1 rounded-lg text-xs font-medium" style={{background:"#FEF3C7",color:"#92400E"}}>+ {s}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div className="flex items-center justify-between py-2">
+              <div>
+                <p className="text-sm font-medium text-gray-700">Visa requirement</p>
+                <p className="text-xs text-gray-400">Applied to every applicant</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-gray-600">
+                  {vals.visaRequirement === "any" ? "Open to all visas" :
+                   vals.visaRequirement === "residence_visa" ? "Must have residence visa" :
+                   vals.visaRequirement === "own_visa" ? "Own visa / transferable" :
+                   vals.visaRequirement === "gcc_national" ? "GCC Nationals preferred" :
+                   "Citizens only"}
+                </span>
+                <button onClick={() => setStep(1)} className="text-xs text-blue-500 underline">Edit</button>
+              </div>
             </div>
           </div>
         </div>
 
-        <div className="bg-gray-50 rounded-xl p-4 text-xs text-gray-500 space-y-1">
-          <p>📊 <strong>What this means:</strong> With 300 applications, recruiters typically review only the amber zone (~60-90 candidates). Top candidates move to WhatsApp instantly. Bottom candidates are handled automatically.</p>
+        <div>
+          <div className="flex items-center gap-2 mb-4">
+            <h3 className="text-sm font-semibold text-gray-700">Automation Thresholds</h3>
+            <span className="text-xs text-gray-400">click numbers to adjust</span>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <div className="rounded-xl p-4 text-center border-2" style={{background:"#F0FDF4",borderColor:"#BBF7D0"}}>
+              <div className="text-xs font-medium mb-2" style={{color:"#166534"}}>Score ≥</div>
+              <input type="number" value={vals.autoApproveThreshold}
+                onChange={e => setValue("autoApproveThreshold", Math.max(parseInt(e.target.value)||75, (vals.autoRejectThreshold||40)+1))}
+                min={1} max={100} className="w-16 text-center text-2xl font-bold bg-transparent border-b-2 outline-none" style={{color:"#166534",borderColor:"#86EFAC"}} />
+              <div className="text-xs font-semibold mt-2" style={{color:"#166534"}}>Auto-approve</div>
+              <div className="text-xs text-gray-400 mt-1">WhatsApp immediately</div>
+            </div>
+            <div className="rounded-xl p-4 text-center border-2" style={{background:"#FFFBEB",borderColor:"#FDE68A"}}>
+              <div className="text-xs font-medium mb-2" style={{color:"#92400E"}}>Score</div>
+              <div className="text-2xl font-bold" style={{color:"#92400E"}}>{vals.autoRejectThreshold}–{(vals.autoApproveThreshold||75)-1}</div>
+              <div className="text-xs font-semibold mt-2" style={{color:"#92400E"}}>Amber Zone</div>
+              <div className="text-xs text-gray-400 mt-1">CV Review Dashboard</div>
+            </div>
+            <div className="rounded-xl p-4 text-center border-2" style={{background:"#FFF1F2",borderColor:"#FECDD3"}}>
+              <div className="text-xs font-medium mb-2" style={{color:"#991B1B"}}>Score &lt;</div>
+              <input type="number" value={vals.autoRejectThreshold}
+                onChange={e => setValue("autoRejectThreshold", Math.min(parseInt(e.target.value)||40, (vals.autoApproveThreshold||75)-1))}
+                min={1} max={100} className="w-16 text-center text-2xl font-bold bg-transparent border-b-2 outline-none" style={{color:"#991B1B",borderColor:"#FCA5A5"}} />
+              <div className="text-xs font-semibold mt-2" style={{color:"#991B1B"}}>Auto-reject</div>
+              <div className="text-xs text-gray-400 mt-1">Rejection email sent</div>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-xl p-4 text-sm" style={{background:"#E8F5EE"}}>
+          <p className="font-medium mb-1" style={{color:"#0A3D2E"}}>What this means for your hiring:</p>
+          <p style={{color:"#0F6E56"}}>Top candidates (≥{vals.autoApproveThreshold}) move to WhatsApp instantly. Borderline candidates ({vals.autoRejectThreshold}–{(vals.autoApproveThreshold||75)-1}) appear in your CV Review Dashboard. Weak candidates (&lt;{vals.autoRejectThreshold}) are handled automatically.</p>
         </div>
       </div>
 
       <div className="flex justify-between mt-5">
-        <button onClick={() => setStep(2)} className="px-6 py-2.5 rounded-xl text-sm font-medium border border-gray-200 text-gray-600 hover:bg-gray-50">
-          ← Back
-        </button>
+        <button onClick={() => setStep(2)} className="px-6 py-2.5 rounded-xl text-sm font-medium border border-gray-200 text-gray-600 hover:bg-gray-50">← Back</button>
         <button onClick={createJobAndGenerateQuestions} disabled={isGeneratingQuestions}
-          className="px-8 py-2.5 rounded-xl text-sm font-semibold text-white transition-all flex items-center gap-2 disabled:opacity-60"
-          style={{background:'#0A3D2E'}}>
-          {isGeneratingQuestions ? (
-            <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Creating job + generating questions...</>
-          ) : 'Next: Baseline Questions →'}
+          className="px-8 py-2.5 rounded-xl text-sm font-semibold text-white flex items-center gap-2 disabled:opacity-60" style={{background:"#0A3D2E"}}>
+          {isGeneratingQuestions ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/>Creating job...</> : "Next: Baseline Questions →"}
         </button>
       </div>
     </div>
   )
 
-  // ─────────────────────────────────────────────────────────────────────────
   // STEP 4: BASELINE QUESTIONS
   // ─────────────────────────────────────────────────────────────────────────
   return (
