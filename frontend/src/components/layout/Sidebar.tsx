@@ -2,7 +2,6 @@
 // src/components/layout/Sidebar.tsx
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useSession, signOut } from 'next-auth/react'
 import {
   HomeIcon,
   BriefcaseIcon,
@@ -35,7 +34,7 @@ const lockedFeatures = [
 
 export function Sidebar() {
   const pathname = usePathname()
-  const { data: session } = useSession()
+  const session = { user: { name: 'Ahmed Al-Rashidi' }, agency: { name: 'Salt Recruitment' } }
 
   return (
     <aside className="w-60 bg-brand-navy flex flex-col flex-shrink-0 shadow-sidebar">

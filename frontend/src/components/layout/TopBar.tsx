@@ -1,7 +1,6 @@
 'use client'
 // src/components/layout/TopBar.tsx
 import { useState } from 'react'
-import { useSession } from 'next-auth/react'
 import { BellIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline'
 import { BellIcon as BellIconSolid } from '@heroicons/react/24/solid'
 import { format } from 'date-fns'
@@ -13,7 +12,7 @@ interface TopBarProps {
 }
 
 export function TopBar({ title, subtitle }: TopBarProps) {
-  const { data: session } = useSession()
+  const session = { user: { name: 'Ahmed Al-Rashidi', email: 'admin@saltrecruitment.ae' }, agency: { name: 'Salt Recruitment', plan: 'Growth Plan' } }
   const [showNotifications, setShowNotifications] = useState(false)
   const unreadCount = 3 // TODO: from real-time store
 
