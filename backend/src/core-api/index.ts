@@ -12,6 +12,7 @@ import { logger } from '../shared/logger'
 // Routes
 import { authRouter }       from './routes/auth'
 import { jobsRouter }       from './routes/jobs'
+import { bulkUploadRouter }    from './routes/bulk-upload'
 import { candidatesRouter } from './routes/candidates'
 import { analyticsRouter }  from './routes/analytics'
 import { adminRouter }      from './routes/admin'
@@ -55,6 +56,7 @@ app.use('/api/v1/auth',       authRouter)
 app.use('/api/v1/jobs',       jobsRouter)
 app.use('/api/v1/candidates', candidatesRouter)
 app.use('/api/v1/analytics',  analyticsRouter)
+app.use('/api/v1',            bulkUploadRouter)
 app.use('/api/v1/admin',      adminRouter)
 
 // ── 404 handler ───────────────────────────────────────────────────────────────
