@@ -24,6 +24,8 @@ export default function CvInboxPage() {
   const [selectedJobId, setSelectedJobId] = useState('')
   const [isUploading, setIsUploading] = useState(false)
   const [uploadDone, setUploadDone] = useState(false)
+  const [processingCount, setProcessingCount] = useState(0)
+  const [processedCount, setProcessedCount] = useState(0)
 
   const { data: jobsRes } = useQuery({
     queryKey: ['jobs-active'],
@@ -76,7 +78,19 @@ export default function CvInboxPage() {
       if (data.success) {
         toast.success(`${data.data.queued} CVs queued — AI is parsing them now`)
         setUploadFiles([]); setPdplConsent(false); setUploadDone(true)
-        setTimeout(() => refetch(), 8000)
+        setProcessingCount(data.data.queued); setProcessedCount(0)
+        // Poll every 5 seconds to update count
+        let polls = 0
+        const interval = setInterval(async () => {
+          polls++
+          try {
+            const r = await api.get<any[]>('/talent-pool/search?maxDays=1')
+            const bulkUploaded = (r.data?.data || []).filter((c: any) => (c.dataTags as any)?.bulkUploaded && c.pipelineStage === 'applied')
+            setProcessedCount(bulkUploaded.length)
+            refetch()
+          } catch {}
+          if (polls >= 12) clearInterval(interval) // stop after 60s
+        }, 5000)
       } else {
         toast.error(data.error?.message || 'Upload failed')
       }
@@ -198,6 +212,35 @@ export default function CvInboxPage() {
             : `✨ Upload and Parse ${uploadFiles.length > 0 ? uploadFiles.length + ' CVs' : 'CVs'} →`}
         </button>
       </div>
+
+      {/* Processing status banner */}
+      {uploadDone && processingCount > 0 && (
+        <div className="mb-4 rounded-xl p-4 border flex items-center gap-3"
+          style={{ background: processedCount >= processingCount ? '#DCFCE7' : '#FDF6E3', borderColor: processedCount >= processingCount ? '#86EFAC' : '#FDE68A' }}>
+          {processedCount >= processingCount ? (
+            <span className="text-lg">✅</span>
+          ) : (
+            <div className="w-5 h-5 border-2 border-t-transparent rounded-full animate-spin flex-shrink-0" style={{ borderColor: '#C9A84C' }} />
+          )}
+          <div>
+            <p className="text-sm font-semibold" style={{ color: processedCount >= processingCount ? '#166534' : '#92400E' }}>
+              {processedCount >= processingCount
+                ? `All ${processingCount} CVs processed — review them below`
+                : `AI is parsing CVs... ${processedCount} of ${processingCount} done`}
+            </p>
+            <p className="text-xs text-gray-400 mt-0.5">
+              {processedCount >= processingCount
+                ? 'Accept good candidates to move them to Talent Pool'
+                : 'This takes about 10-15 seconds per CV. Page updates automatically.'}
+            </p>
+          </div>
+          {processedCount >= processingCount && (
+            <span className="ml-auto text-xs px-3 py-1 rounded-full font-medium" style={{ background: '#0A3D2E', color: '#C9A84C' }}>
+              {processingCount} ready to review
+            </span>
+          )}
+        </div>
+      )}
 
       {/* CV Review table */}
       <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">

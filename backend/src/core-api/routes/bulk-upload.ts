@@ -66,7 +66,7 @@ bulkUploadRouter.post('/bulk-upload', upload.array('cvFiles', 50), async (req: A
         waNumberHash: hash, waNumberEncrypted: cvStructured.phone ? Buffer.from(cvStructured.phone).toString('base64') : 'bulk_upload',
         fullName: cvStructured.fullName, email: cvStructured.email || null,
         currentRole: cvStructured.currentRole || null, yearsExperience: cvStructured.yearsExperienceTotal || null,
-        cvStructured: cvStructured, cvType: 'full_cv',
+        cvStructured: JSON.parse(JSON.stringify(cvStructured).slice(0, 65000)) as any, cvType: 'full_cv',
         consentGiven: true, consentTimestamp: new Date(),
         sourceChannel: sourceChannel || 'bulk_upload',
         pipelineStage: 'applied', conversationState: 'completed',

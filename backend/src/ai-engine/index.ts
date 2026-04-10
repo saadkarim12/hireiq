@@ -7,6 +7,7 @@ import { processJdRoute }       from './routes/process-jd'
 import { scoreCandidateRoute }  from './routes/score-candidate'
 import { parseCvRoute }         from './routes/parse-cv'
 import { generateSummaryRoute } from './routes/generate-summary'
+import { extractTextRoute }     from './routes/extract-text'
 import { generateJdRoute }      from './routes/generate-jd'
 import { evaluateAnswerRoute }  from './routes/evaluate-answer'
 
@@ -22,6 +23,7 @@ app.use('/api/v1/ai', processJdRoute)
 app.use('/api/v1/ai', scoreCandidateRoute)
 app.use('/api/v1/ai', parseCvRoute)
 app.use('/api/v1/ai', generateSummaryRoute)
+app.use('/api/v1/ai', extractTextRoute)
 app.use('/api/v1/ai', generateJdRoute)
 app.use('/api/v1/ai', evaluateAnswerRoute)
 
