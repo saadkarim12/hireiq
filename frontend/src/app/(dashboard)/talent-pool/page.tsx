@@ -200,7 +200,7 @@ export default function TalentPoolPage() {
                         ) : '—'}
                       </td>
                       <td className="px-4 py-3 w-32">
-                        <ScoreBar score={c.scores.compositeScore} />
+                        <ScoreBar score={c.compositeScore} />
                       </td>
                       <td className="px-4 py-3">
                         <PipelineStageBadge stage={c.pipelineStage} />
