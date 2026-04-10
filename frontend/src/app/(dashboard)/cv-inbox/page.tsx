@@ -34,17 +34,19 @@ export default function CvInboxPage() {
 
   const { data: inboxRes, isLoading, refetch } = useQuery({
     queryKey: ['cv-inbox'],
-    queryFn: () => api.get<any[]>('/talent-pool/search?maxDays=7'),
-    refetchInterval: uploadDone ? 5000 : false,
+    queryFn: () => api.get<any[]>('/talent-pool/search?maxDays=7&minScore=0'),
+    refetchInterval: 10000,
   })
 
   const jobs = jobsRes?.data?.data || []
-  const inboxCandidates = (inboxRes?.data?.data || []).filter(
-    (c: any) => c.pipelineStage === 'applied' && (c.dataTags as any)?.bulkUploaded
-  )
-
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault(); setIsDragging(false)
+  const inboxCandidates = [...(inboxRes?.data?.data || [])]
+    .filter((c: any) => 
+      c.pipelineStage !== 'rejected' &&
+      c.fullName && 
+      c.fullName !== '<UNKNOWN>' && 
+      c.fullName !== 'UNKNOWN'
+    )
+    .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()); setIsDragging(false)
     const files = Array.from(e.dataTransfer.files).filter(f =>
       f.type === 'application/pdf' || f.name.endsWith('.docx') || f.name.endsWith('.doc')
     )
@@ -57,6 +59,7 @@ export default function CvInboxPage() {
 
   const handleUpload = async () => {
     if (!uploadFiles.length) { toast.error('Select at least one CV'); return }
+    if (!selectedJobId) { toast.error('Please select a job to match CVs against'); return }
     if (!pdplConsent) { toast.error('PDPL consent required'); return }
     setIsUploading(true)
     try {
@@ -85,7 +88,7 @@ export default function CvInboxPage() {
           polls++
           try {
             const r = await api.get<any[]>('/talent-pool/search?maxDays=1')
-            const bulkUploaded = (r.data?.data || []).filter((c: any) => (c.dataTags as any)?.bulkUploaded && c.pipelineStage === 'applied')
+            const bulkUploaded = (r.data?.data || []).filter((c: any) => ['applied','evaluated'].includes(c.pipelineStage))
             setProcessedCount(bulkUploaded.length)
             refetch()
           } catch {}
@@ -184,7 +187,7 @@ export default function CvInboxPage() {
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">
-              Score against job <span className="text-gray-400 font-normal text-xs">(optional)</span>
+              Match against job <span className="text-red-500 text-xs font-medium">*</span>
             </label>
             <select value={selectedJobId} onChange={e => setSelectedJobId(e.target.value)}
               className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-emerald-400">
@@ -214,7 +217,7 @@ export default function CvInboxPage() {
       </div>
 
       {/* Processing status banner */}
-      {uploadDone && processingCount > 0 && (
+      {processingCount > 0 && (
         <div className="mb-4 rounded-xl p-4 border flex items-center gap-3"
           style={{ background: processedCount >= processingCount ? '#DCFCE7' : '#FDF6E3', borderColor: processedCount >= processingCount ? '#86EFAC' : '#FDE68A' }}>
           {processedCount >= processingCount ? (
@@ -273,7 +276,7 @@ export default function CvInboxPage() {
           <table className="w-full">
             <thead>
               <tr className="bg-gray-50 border-b border-gray-100">
-                {['Candidate','Role','Experience','Source','Score','Decision'].map(h => (
+                {['Candidate','Current Role','Job Applied','Experience','Score','Source','Decision'].map(h => (
                   <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500">{h}</th>
                 ))}
               </tr>
@@ -298,6 +301,7 @@ export default function CvInboxPage() {
                       </div>
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-600">{c.currentRole || '—'}</td>
+                    <td className="px-4 py-3 text-sm text-gray-500 text-xs">{(c.dataTags as any)?.jobTitle || '—'}</td>
                     <td className="px-4 py-3 text-sm text-gray-600">{c.yearsExperience ? `${c.yearsExperience} yrs` : '—'}</td>
                     <td className="px-4 py-3">
                       <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: '#E8F5EE', color: '#0A3D2E' }}>

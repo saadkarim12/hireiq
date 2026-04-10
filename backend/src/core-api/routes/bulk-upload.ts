@@ -58,7 +58,10 @@ bulkUploadRouter.post('/bulk-upload', upload.array('cvFiles', 50), async (req: A
       const crypto = require('crypto')
       const hash = crypto.createHash('sha256').update(cvStructured.email || cvStructured.phone || file.originalname + Date.now()).digest('hex')
 
-      const defaultJob = jobId || await prisma.job.findFirst({ where: { agencyId: req.user!.agencyId }, orderBy: { createdAt: 'desc' } }).then(j => j?.id)
+      const jobRecord = jobId 
+        ? await prisma.job.findUnique({ where: { id: jobId }, select: { id: true, title: true, hiringCompany: true } })
+        : await prisma.job.findFirst({ where: { agencyId: req.user!.agencyId }, orderBy: { createdAt: 'desc' }, select: { id: true, title: true, hiringCompany: true } })
+      const defaultJob = jobRecord?.id
       if (!defaultJob) { failed++; continue }
 
       const candidate = await prisma.candidate.create({ data: {
@@ -72,6 +75,7 @@ bulkUploadRouter.post('/bulk-upload', upload.array('cvFiles', 50), async (req: A
         pipelineStage: 'applied', conversationState: 'completed',
         dataTags: JSON.parse(JSON.stringify({
           bulkUploaded: true, sourceChannel: sourceChannel || 'bulk_upload',
+            jobTitle: jobRecord?.title || null, jobCompany: jobRecord?.hiringCompany || null,
           parseConfidence: cvStructured.parseConfidence || 70,
           seniorityLevel: (cvStructured.yearsExperienceTotal || 0) >= 8 ? 'Senior' : (cvStructured.yearsExperienceTotal || 0) >= 4 ? 'Mid-Level' : 'Junior',
         })),
@@ -98,13 +102,13 @@ bulkUploadRouter.get('/talent-pool/search', async (req: AuthRequest, res: Respon
       where: {
         agencyId: req.user!.agencyId,
         createdAt: { gte: cutoff },
-        pipelineStage: { notIn: ['rejected'] },
+        // pipelineStage filter removed — frontend handles display logic
         ...(q ? { OR: [
           { fullName: { contains: q as string, mode: 'insensitive' } },
           { currentRole: { contains: q as string, mode: 'insensitive' } },
         ]} : {}),
         ...(source ? { sourceChannel: source as string } : {}),
-        ...(minScore ? { compositeScore: { gte: parseInt(minScore as string) } } : {}),
+        ...(minScore && parseInt(minScore as string) > 0 ? { compositeScore: { gte: parseInt(minScore as string) } } : {}),
       },
       orderBy: { compositeScore: 'desc' },
       take: 100,
@@ -130,7 +134,7 @@ bulkUploadRouter.get('/jobs/:jobId/talent-matches', async (req: AuthRequest, res
       where: {
         agencyId: req.user!.agencyId,
         compositeScore: { gte: threshold },
-        pipelineStage: { notIn: ['rejected'] },
+        // pipelineStage filter removed — frontend handles display logic
         NOT: { OR: [
           ...(existingEmails.length ? [{ email: { in: existingEmails } }] : []),
           { waNumberHash: { in: existingHashes } },
