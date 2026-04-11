@@ -448,16 +448,28 @@ export default function CvInboxPage() {
               </div>
 
               {/* Actions */}
-              <div className="flex gap-3">
-                <button onClick={() => { accept.mutate(selectedInbox.id); setSelectedInbox(null) }}
-                  className="flex-1 py-2.5 text-sm font-semibold text-white rounded-xl"
+              <div className="flex flex-col gap-2">
+                <button onClick={() => {
+                    api.patch(`/candidates/${selectedInbox.id}/status`, { pipelineStage: 'screening', sendWhatsApp: true })
+                    accept.mutate(selectedInbox.id)
+                    setSelectedInbox(null)
+                    toast.success(`WhatsApp invitation sent to ${selectedInbox.fullName}`)
+                  }}
+                  className="w-full py-2.5 text-sm font-semibold text-white rounded-xl flex items-center justify-center gap-2"
                   style={{ background: '#0A3D2E' }}>
-                  ✓ Accept → Talent Pool
+                  💬 Invite to WhatsApp Screening
                 </button>
-                <button onClick={() => { reject.mutate(selectedInbox.id); setSelectedInbox(null) }}
-                  className="flex-1 py-2.5 text-sm font-semibold rounded-xl border-2 border-red-200 text-red-600">
-                  ✗ Reject
-                </button>
+                <div className="flex gap-2">
+                  <button onClick={() => { accept.mutate(selectedInbox.id); setSelectedInbox(null) }}
+                    className="flex-1 py-2 text-sm font-medium rounded-xl border-2 transition-all"
+                    style={{ borderColor: '#0A3D2E', color: '#0A3D2E' }}>
+                    + Add to Talent Pool
+                  </button>
+                  <button onClick={() => { reject.mutate(selectedInbox.id); setSelectedInbox(null) }}
+                    className="flex-1 py-2 text-sm font-medium rounded-xl border-2 border-red-200 text-red-600">
+                    ✗ Reject
+                  </button>
+                </div>
               </div>
             </div>
           </div>
