@@ -40,6 +40,6 @@ export async function generateDevToken(agencyId: string, userId: string, role = 
   return jwt.sign(
     { userId, agencyId, role, email: 'dev@hireiq.ai' },
     process.env.JWT_SECRET || 'dev-secret',
-    { expiresIn: '24h' }
+    { expiresIn: '365d' }
   )
 }

@@ -1,28 +1,33 @@
-import axios, { AxiosInstance } from 'axios'
+import axios from 'axios'
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
-let cachedToken: string | null = null
-let tokenExpiry: number = 0
+// Singleton refresh — prevents race condition when multiple queries fire simultaneously
+let cachedToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJkYTI2NGU5Mi04OTkzLTRkZmUtODU3OS1lZjQzZWU5ZWI4OWMiLCJhZ2VuY3lJZCI6ImYwMTRjODg2LWYyYWMtNGQ0OC04OTdjLTAwNzJhYjYzZjcwMCIsInJvbGUiOiJhZ2VuY3lfYWRtaW4iLCJlbWFpbCI6ImRldkBoaXJlaXEuYWkiLCJpYXQiOjE3NzU5MzI5NjYsImV4cCI6MTgwNzQ2ODk2Nn0.CqDUuaTPV1qguvFfw43mHfsnesMrsR2cUbXedVvSIL4'
+let tokenExpiry = Date.now() + 364 * 24 * 60 * 60 * 1000
+let refreshPromise: Promise<string> | null = null
+
+async function refreshToken(): Promise<string> {
+  if (refreshPromise) return refreshPromise
+  refreshPromise = fetch('/api/token')
+    .then(r => r.json())
+    .then(d => {
+      if (d.token) {
+        cachedToken = d.token
+        tokenExpiry = Date.now() + 20 * 60 * 60 * 1000
+      }
+      return cachedToken
+    })
+    .finally(() => { refreshPromise = null })
+  return refreshPromise
+}
 
 async function getToken(): Promise<string> {
   if (cachedToken && Date.now() < tokenExpiry) return cachedToken
-  try {
-    const res = await fetch(`${API_BASE}/api/v1/auth/dev-login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: 'admin@saltrecruitment.ae' }),
-    })
-    const data = await res.json()
-    cachedToken = data.data.accessToken
-    tokenExpiry = Date.now() + 23 * 60 * 60 * 1000 // 23 hours
-    return cachedToken!
-  } catch {
-    return cachedToken || ''
-  }
+  return refreshToken()
 }
 
-const apiClient: AxiosInstance = axios.create({
+const apiClient = axios.create({
   baseURL: `${API_BASE}/api/v1`,
   headers: { 'Content-Type': 'application/json' },
   timeout: 30000,
@@ -37,9 +42,11 @@ apiClient.interceptors.request.use(async (config) => {
 apiClient.interceptors.response.use(
   (response) => response,
   async (error) => {
-    if (error.response?.status === 401) {
-      cachedToken = null
-      const token = await getToken()
+    if (error.response?.status === 401 && !error.config._retry) {
+      error.config._retry = true
+      cachedToken = ''
+      tokenExpiry = 0
+      const token = await refreshToken()
       error.config.headers.Authorization = `Bearer ${token}`
       return apiClient.request(error.config)
     }
