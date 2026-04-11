@@ -262,8 +262,8 @@ export default function CvInboxPage() {
             <select value={filterJob} onChange={e => setFilterJob(e.target.value)}
               className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 outline-none focus:border-emerald-400 min-w-[160px]">
               <option value="">All jobs</option>
-              {jobs.map((j: any) => (
-                <option key={j.id} value={j.id}>{j.title}</option>
+              {jobs.filter((j: any, idx: number, arr: any[]) => arr.findIndex((x: any) => x.id === j.id) === idx).map((j: any) => (
+                <option key={j.id} value={j.id}>{j.title} — {j.hiringCompany}</option>
               ))}
             </select>
             {inboxCandidates.length > 0 && (
