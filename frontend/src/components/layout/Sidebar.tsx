@@ -22,6 +22,8 @@ import clsx from 'clsx'
 const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: HomeIcon, activeIcon: HomeIconSolid },
   { name: 'Jobs', href: '/jobs', icon: BriefcaseIcon, activeIcon: BriefcaseIconSolid },
+  { name: 'CV Inbox', href: '/cv-inbox', icon: BriefcaseIcon, activeIcon: BriefcaseIconSolid },
+  { name: 'CV Inbox', href: '/cv-inbox', icon: BriefcaseIcon, activeIcon: BriefcaseIconSolid },
   { name: 'Talent Pool', href: '/talent-pool', icon: UserGroupIcon, activeIcon: UserGroupIconSolid },
   { name: 'Analytics', href: '/analytics', icon: ChartBarIcon, activeIcon: ChartBarIconSolid },
 ]

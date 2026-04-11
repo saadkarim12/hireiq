@@ -46,7 +46,11 @@ export default function CvInboxPage() {
       c.fullName !== '<UNKNOWN>' && 
       c.fullName !== 'UNKNOWN'
     )
-    .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()); setIsDragging(false)
+    .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragging(false)
     const files = Array.from(e.dataTransfer.files).filter(f =>
       f.type === 'application/pdf' || f.name.endsWith('.docx') || f.name.endsWith('.doc')
     )

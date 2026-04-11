@@ -31,7 +31,7 @@ export default function TalentPoolPage() {
   // Only show accepted (evaluated/shortlisted) candidates — not raw inbox
   const all = poolRes?.data?.data || []
   const candidates = all.filter((c: any) =>
-    ['evaluated','shortlisted','screening','advanced'].includes(c.pipelineStage)
+    !['rejected','applied'].includes(c.pipelineStage)
   )
 
   const sourceBreakdown = candidates.reduce((acc: any, c: any) => {
