@@ -321,16 +321,16 @@ export default function CvInboxPage() {
                     <td className="px-4 py-3 text-sm text-gray-500 text-xs">{(c.dataTags as any)?.jobTitle || '—'}</td>
                     <td className="px-4 py-3 text-sm text-gray-600">{c.yearsExperience ? `${c.yearsExperience} yrs` : '—'}</td>
                     <td className="px-4 py-3">
-                      <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: '#E8F5EE', color: '#0A3D2E' }}>
-                        {(c.sourceChannel || 'other').replace(/_/g,' ')}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
                       {score ? (
                         <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: scoreBg, color: scoreColor }}>
                           {score}
                         </span>
                       ) : <span className="text-xs text-gray-400">Scoring...</span>}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: '#E8F5EE', color: '#0A3D2E' }}>
+                        {(c.sourceChannel || 'other').replace(/_/g,' ')}
+                      </span>
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex gap-2">
