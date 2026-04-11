@@ -130,19 +130,67 @@ bulkUploadRouter.get('/jobs/:jobId/talent-matches', async (req: AuthRequest, res
     const existingEmails = inJob.map(c => c.email).filter(Boolean) as string[]
     const existingHashes = inJob.map(c => c.waNumberHash)
 
-    const matches = await prisma.candidate.findMany({
+    // Get all pool candidates not already in this job
+    const allCandidates = await prisma.candidate.findMany({
       where: {
         agencyId: req.user!.agencyId,
-        compositeScore: { gte: threshold },
-        // pipelineStage filter removed — frontend handles display logic
-        NOT: { OR: [
-          ...(existingEmails.length ? [{ email: { in: existingEmails } }] : []),
-          { waNumberHash: { in: existingHashes } },
-        ]},
+        fullName: { not: null },
+        NOT: [
+          { fullName: '<UNKNOWN>' },
+          { fullName: 'UNKNOWN' },
+          { OR: [
+            ...(existingEmails.length ? [{ email: { in: existingEmails } }] : [{ id: 'none' }]),
+            { waNumberHash: { in: existingHashes } },
+          ]},
+        ],
       },
       orderBy: { compositeScore: 'desc' },
-      take: 30,
+      take: 100,
     })
+
+    // Re-score each candidate against job skills
+    const jobSkills: string[] = [
+      ...((job as any).requiredSkills || []),
+      ...((job as any).preferredSkills || []),
+    ]
+
+    const matches = allCandidates
+      .map(c => {
+        const cvSkills: string[] = (c.cvStructured as any)?.skills || []
+        const cvText = JSON.stringify(c.cvStructured || '').toLowerCase()
+
+        // Skill match score
+        let skillMatches = 0
+        const skillEvidence = jobSkills.map(skill => {
+          const found = cvSkills.some(s => s.toLowerCase().includes(skill.toLowerCase())) ||
+                        cvText.includes(skill.toLowerCase())
+          if (found) skillMatches++
+          return { skill, found }
+        })
+
+        const skillScore = jobSkills.length > 0
+          ? Math.round((skillMatches / jobSkills.length) * 100)
+          : c.compositeScore || 0
+
+        // Blend stored score with skill match (60/40)
+        const storedScore = c.compositeScore || skillScore
+        const blendedScore = jobSkills.length > 0
+          ? Math.round(storedScore * 0.4 + skillScore * 0.6)
+          : storedScore
+
+        return {
+          ...c,
+          compositeScore: blendedScore,
+          dataTags: {
+            ...(c.dataTags as any || {}),
+            evidence: { mustHaveSkills: skillEvidence },
+          }
+        }
+      })
+      .filter(c => c.compositeScore >= threshold)
+      .sort((a, b) => (b.compositeScore || 0) - (a.compositeScore || 0))
+      .slice(0, 30)
+
     res.json({ success: true, data: { matches, jobTitle: job.title, totalMatches: matches.length, threshold } })
   } catch {
     res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Failed' } })

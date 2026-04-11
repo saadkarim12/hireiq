@@ -1,6 +1,7 @@
 'use client'
 // src/app/(dashboard)/jobs/[id]/pipeline/page.tsx
 import { useState, use } from 'react'
+import { useRouter } from 'next/navigation'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { jobsApi } from '@/api/jobs'
 import { candidatesApi } from '@/api/candidates'
@@ -25,6 +26,7 @@ const STAGES: { key: PipelineStage; label: string; color: string }[] = [
 
 export default function PipelinePage({ params }: PageProps) {
   const id = (params as any).id
+  const router = useRouter()
   const queryClient = useQueryClient()
   const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null)
   const [isExporting, setIsExporting] = useState(false)
@@ -148,6 +150,12 @@ ${job.locationCountry === 'AE' ? '#UAEJobs #DubaiJobs #AbuDhabiJobs' : '#SaudiJo
             >
               <ShareIcon className="w-3.5 h-3.5" />
               Share Link
+            </button>
+            <button
+              onClick={() => router.push(`/jobs/${id}/talent-matches`)}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-xl border-2 transition-all"
+              style={{ borderColor: '#0A3D2E', color: '#0A3D2E' }}>
+              👥 Talent Pool Matches
             </button>
             <button
               onClick={handleLinkedIn}
