@@ -28,6 +28,7 @@ export default function CvInboxPage() {
   const [processingCount, setProcessingCount] = useState(0)
   const [processedCount, setProcessedCount] = useState(0)
   const [filterJob, setFilterJob] = useState('')
+  const [selectedInbox, setSelectedInbox] = useState<any>(null)
 
   const { data: jobsRes } = useQuery({
     queryKey: ['jobs-active'],
@@ -304,7 +305,7 @@ export default function CvInboxPage() {
                 const scoreColor = score >= 75 ? '#166534' : score >= 55 ? '#92400E' : score ? '#991B1B' : '#9CA3AF'
                 const scoreBg   = score >= 75 ? '#DCFCE7' : score >= 55 ? '#FEF3C7' : score ? '#FEE2E2' : '#F3F4F6'
                 return (
-                  <tr key={c.id} className={`border-b border-gray-50 ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}`}>
+                  <tr key={c.id} onClick={() => setSelectedInbox(c)} className={`border-b border-gray-50 cursor-pointer hover:bg-emerald-50/30 transition-colors ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}`}>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
                         <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0"
@@ -334,12 +335,12 @@ export default function CvInboxPage() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex gap-2">
-                        <button onClick={() => accept.mutate(c.id)}
+                        <button onClick={(e) => { e.stopPropagation(); accept.mutate(c.id) }}
                           className="text-xs px-3 py-1.5 rounded-lg font-semibold text-white transition-all"
                           style={{ background: '#0A3D2E' }}>
                           ✓ Accept
                         </button>
-                        <button onClick={() => reject.mutate(c.id)}
+                        <button onClick={(e) => { e.stopPropagation(); reject.mutate(c.id) }}
                           className="text-xs px-3 py-1.5 rounded-lg font-semibold border border-red-200 text-red-600 hover:bg-red-50 transition-all">
                           ✗ Reject
                         </button>
@@ -352,6 +353,110 @@ export default function CvInboxPage() {
           </table>
         )}
       </div>
+
+      {/* Score breakdown drawer */}
+      {selectedInbox && (
+        <div className="fixed inset-0 z-50 flex justify-end" onClick={() => setSelectedInbox(null)}>
+          <div className="absolute inset-0 bg-black/30" />
+          <div className="relative w-full max-w-md bg-white h-full shadow-2xl overflow-y-auto"
+            onClick={e => e.stopPropagation()}>
+            <div className="p-6">
+              <div className="flex items-start justify-between mb-5">
+                <div className="flex items-center gap-3">
+                  <div className="w-11 h-11 rounded-full flex items-center justify-center text-sm font-bold"
+                    style={{ background: '#E8F5EE', color: '#0A3D2E' }}>
+                    {selectedInbox.fullName?.split(' ').map((n: string) => n[0]).join('').slice(0,2)}
+                  </div>
+                  <div>
+                    <h2 className="text-base font-bold" style={{ color: '#0A3D2E' }}>{selectedInbox.fullName}</h2>
+                    <p className="text-sm text-gray-500">{selectedInbox.currentRole}</p>
+                  </div>
+                </div>
+                <button onClick={() => setSelectedInbox(null)} className="text-gray-400 hover:text-gray-600 text-xl font-light">×</button>
+              </div>
+
+              {/* Score */}
+              {selectedInbox.compositeScore && (
+                <div className="mb-5 p-4 rounded-xl flex items-center gap-4"
+                  style={{ background: selectedInbox.compositeScore >= 75 ? '#DCFCE7' : selectedInbox.compositeScore >= 55 ? '#FEF3C7' : '#FEE2E2' }}>
+                  <span className="text-3xl font-bold"
+                    style={{ color: selectedInbox.compositeScore >= 75 ? '#166534' : selectedInbox.compositeScore >= 55 ? '#92400E' : '#991B1B' }}>
+                    {selectedInbox.compositeScore}
+                  </span>
+                  <div>
+                    <p className="text-sm font-semibold text-gray-800">Composite Score</p>
+                    <p className="text-xs text-gray-500">CV Match 40% + Commitment 40% + Salary 20%</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Score breakdown */}
+              <div className="space-y-3 mb-5">
+                {[
+                  { label: 'CV Match', value: selectedInbox.cvMatchScore, weight: '40%' },
+                  { label: 'Commitment', value: selectedInbox.commitmentScore, weight: '40%' },
+                  { label: 'Salary Fit', value: selectedInbox.salaryFitScore, weight: '20%' },
+                ].map(({ label, value, weight }) => value ? (
+                  <div key={label}>
+                    <div className="flex justify-between text-xs mb-1">
+                      <span className="text-gray-600 font-medium">{label} <span className="text-gray-400">({weight})</span></span>
+                      <span className="font-bold" style={{ color: value >= 75 ? '#166534' : value >= 55 ? '#92400E' : '#991B1B' }}>{value}/100</span>
+                    </div>
+                    <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                      <div className="h-full rounded-full transition-all"
+                        style={{ width: `${value}%`, background: value >= 75 ? '#0A3D2E' : value >= 55 ? '#C9A84C' : '#EF4444' }} />
+                    </div>
+                  </div>
+                ) : null)}
+              </div>
+
+              {/* Skills evidence */}
+              {(selectedInbox.dataTags as any)?.evidence?.mustHaveSkills?.length > 0 && (
+                <div className="mb-5">
+                  <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Skills Match</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {((selectedInbox.dataTags as any)?.evidence?.mustHaveSkills || []).map((s: any, i: number) => (
+                      <span key={i} className="text-xs px-2 py-1 rounded-lg font-medium"
+                        style={{ background: s.found ? '#DCFCE7' : '#FEE2E2', color: s.found ? '#166534' : '#991B1B' }}>
+                        {s.found ? '✓' : '✗'} {s.skill}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Details */}
+              <div className="space-y-3 mb-6 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Experience</span>
+                  <span className="font-medium">{selectedInbox.yearsExperience ? `${selectedInbox.yearsExperience} years` : '—'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Salary Expected</span>
+                  <span className="font-medium">{selectedInbox.salaryExpectation ? `AED ${selectedInbox.salaryExpectation.toLocaleString()}` : '—'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Source</span>
+                  <span className="font-medium capitalize">{(selectedInbox.sourceChannel || 'unknown').replace(/_/g,' ')}</span>
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex gap-3">
+                <button onClick={() => { accept.mutate(selectedInbox.id); setSelectedInbox(null) }}
+                  className="flex-1 py-2.5 text-sm font-semibold text-white rounded-xl"
+                  style={{ background: '#0A3D2E' }}>
+                  ✓ Accept → Talent Pool
+                </button>
+                <button onClick={() => { reject.mutate(selectedInbox.id); setSelectedInbox(null) }}
+                  className="flex-1 py-2.5 text-sm font-semibold rounded-xl border-2 border-red-200 text-red-600">
+                  ✗ Reject
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
