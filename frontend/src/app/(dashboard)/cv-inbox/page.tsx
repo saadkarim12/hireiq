@@ -42,12 +42,16 @@ export default function CvInboxPage() {
 
   const jobs = jobsRes?.data?.data || []
   const inboxCandidates = [...(inboxRes?.data?.data || [])]
-    .filter((c: any) => 
-      c.pipelineStage !== 'rejected' &&
-      c.fullName && 
-      c.fullName !== '<UNKNOWN>' && 
-      c.fullName !== 'UNKNOWN'
-    )
+    .filter((c: any) => {
+      if (c.pipelineStage === 'rejected') return false
+      if (!c.fullName || c.fullName === '<UNKNOWN>' || c.fullName === 'UNKNOWN') return false
+      if (filterJob) {
+        const matchedJob = jobs.find((j: any) => j.id === filterJob)
+        const jobTitle = matchedJob?.title || ''
+        return c.jobId === filterJob || (c.dataTags as any)?.jobTitle === jobTitle
+      }
+      return true
+    })
     .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
 
   const handleDrop = useCallback((e: React.DragEvent) => {
