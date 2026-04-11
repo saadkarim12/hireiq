@@ -2,6 +2,7 @@
 import { useState, useCallback, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/api/client'
+import apiClient from '@/api/client'
 import { toast } from 'react-hot-toast'
 
 const SOURCES = [
@@ -74,7 +75,7 @@ export default function CvInboxPage() {
       if (selectedJobId) formData.append('jobId', selectedJobId)
 
       const DEV_TOKEN = document.querySelector('meta[name="dev-token"]')?.getAttribute('content') || ''
-      const authHeader = `Bearer ${DEV_TOKEN}`
+      const authHeader = (apiClient.defaults.headers as any)?.Authorization || ''
 
       const res = await fetch('http://localhost:3001/api/v1/bulk-upload', {
         method: 'POST',
