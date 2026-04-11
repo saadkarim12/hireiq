@@ -64,7 +64,7 @@ export default function AnalyticsPage() {
 
   return (
     <>
-      <TopBar title="Analytics" subtitle="Track your platform performance" />
+      
       <div className="p-6 space-y-6">
 
         {/* Controls */}

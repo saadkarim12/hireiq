@@ -1,22 +1,50 @@
-import axios, { AxiosInstance, AxiosError } from 'axios'
+import axios, { AxiosInstance } from 'axios'
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
-const DEV_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJkYTI2NGU5Mi04OTkzLTRkZmUtODU3OS1lZjQzZWU5ZWI4OWMiLCJhZ2VuY3lJZCI6ImYwMTRjODg2LWYyYWMtNGQ0OC04OTdjLTAwNzJhYjYzZjcwMCIsInJvbGUiOiJhZ2VuY3lfYWRtaW4iLCJlbWFpbCI6ImRldkBoaXJlaXEuYWkiLCJpYXQiOjE3NzU5MTMyMzQsImV4cCI6MTc3NTk5OTYzNH0.we1BZOOFTlPmQQ7du0qzcRyannQ2gruU5ZkqkemtrMs'
+
+let cachedToken: string | null = null
+let tokenExpiry: number = 0
+
+async function getToken(): Promise<string> {
+  if (cachedToken && Date.now() < tokenExpiry) return cachedToken
+  try {
+    const res = await fetch(`${API_BASE}/api/v1/auth/dev-login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'admin@saltrecruitment.ae' }),
+    })
+    const data = await res.json()
+    cachedToken = data.data.accessToken
+    tokenExpiry = Date.now() + 23 * 60 * 60 * 1000 // 23 hours
+    return cachedToken!
+  } catch {
+    return cachedToken || ''
+  }
+}
 
 const apiClient: AxiosInstance = axios.create({
-  baseURL: 'http://localhost:3001/api/v1',
+  baseURL: `${API_BASE}/api/v1`,
   headers: { 'Content-Type': 'application/json' },
   timeout: 30000,
 })
 
-apiClient.interceptors.request.use((config) => {
-  config.headers.Authorization = `Bearer ${DEV_TOKEN}`
+apiClient.interceptors.request.use(async (config) => {
+  const token = await getToken()
+  config.headers.Authorization = `Bearer ${token}`
   return config
 })
 
 apiClient.interceptors.response.use(
   (response) => response,
-  (error: AxiosError) => Promise.reject(error)
+  async (error) => {
+    if (error.response?.status === 401) {
+      cachedToken = null
+      const token = await getToken()
+      error.config.headers.Authorization = `Bearer ${token}`
+      return apiClient.request(error.config)
+    }
+    return Promise.reject(error)
+  }
 )
 
 export const api = {

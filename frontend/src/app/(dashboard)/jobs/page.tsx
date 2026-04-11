@@ -36,7 +36,7 @@ export default function JobsPage() {
 
   return (
     <>
-      <TopBar title="Jobs" subtitle="Manage all your open roles" />
+      
       <div className="p-6 space-y-5">
 
         {/* Header actions */}
