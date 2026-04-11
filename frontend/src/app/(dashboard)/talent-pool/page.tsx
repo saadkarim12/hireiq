@@ -48,7 +48,7 @@ export default function TalentPoolPage() {
 
   const handleDownload = async (candidateId: string, name: string) => {
     try {
-      const token = (api as any).defaults?.headers?.common?.Authorization || ''
+      const token = (api as any).defaults?.headers?.Authorization || ''
       const res = await fetch(`http://localhost:3001/api/v1/candidates/${candidateId}/cv-download`, {
         headers: token ? { Authorization: token } : {}
       })
