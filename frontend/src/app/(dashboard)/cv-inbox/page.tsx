@@ -326,7 +326,7 @@ export default function CvInboxPage() {
                         <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: scoreBg, color: scoreColor }}>
                           {score}
                         </span>
-                      ) : <span className="text-xs text-gray-400">Scoring...</span>}
+                      ) : <span className="text-xs text-gray-400 italic">Pending...</span>}
                     </td>
                     <td className="px-4 py-3">
                       <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: '#E8F5EE', color: '#0A3D2E' }}>
@@ -384,8 +384,8 @@ export default function CvInboxPage() {
                     {selectedInbox.compositeScore}
                   </span>
                   <div>
-                    <p className="text-sm font-semibold text-gray-800">Composite Score</p>
-                    <p className="text-xs text-gray-500">CV Match 40% + Commitment 40% + Salary 20%</p>
+                    <p className="text-sm font-semibold text-gray-800">CV Screening Score</p>
+                    <p className="text-xs text-gray-500">Based on skills + experience match against job criteria</p>
                   </div>
                 </div>
               )}
@@ -394,7 +394,7 @@ export default function CvInboxPage() {
               <div className="space-y-3 mb-5">
                 {[
                   { label: 'CV Match', value: selectedInbox.cvMatchScore, weight: '40%' },
-                  { label: 'Commitment', value: selectedInbox.commitmentScore, weight: '40%' },
+                  { label: 'Commitment (after WhatsApp)', value: selectedInbox.commitmentScore, weight: '40%' },
                   { label: 'Salary Fit', value: selectedInbox.salaryFitScore, weight: '20%' },
                 ].map(({ label, value, weight }) => value ? (
                   <div key={label}>
@@ -408,6 +408,12 @@ export default function CvInboxPage() {
                     </div>
                   </div>
                 ) : null)}
+              </div>
+
+              {/* WhatsApp note */}
+              <div className="mb-4 p-3 rounded-lg text-xs" style={{ background: '#FDF6E3', color: '#92400E' }}>
+                <strong>Full composite score</strong> calculated after WhatsApp screening.
+                Commitment (40%) and confirmed salary fit added then.
               </div>
 
               {/* Skills evidence */}
