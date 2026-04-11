@@ -27,6 +27,7 @@ export default function CvInboxPage() {
   const [uploadDone, setUploadDone] = useState(false)
   const [processingCount, setProcessingCount] = useState(0)
   const [processedCount, setProcessedCount] = useState(0)
+  const [filterJob, setFilterJob] = useState('')
 
   const { data: jobsRes } = useQuery({
     queryKey: ['jobs-active'],
