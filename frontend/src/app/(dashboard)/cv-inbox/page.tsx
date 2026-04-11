@@ -258,14 +258,21 @@ export default function CvInboxPage() {
             <h2 className="text-base font-semibold" style={{ color: '#0A3D2E' }}>Pending Review</h2>
             <p className="text-xs text-gray-400 mt-0.5">CVs uploaded in the last 7 days awaiting your decision</p>
           </div>
-          {inboxCandidates.length > 0 && (
-            <div className="flex gap-2">
+          <div className="flex items-center gap-2">
+            <select value={filterJob} onChange={e => setFilterJob(e.target.value)}
+              className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 outline-none focus:border-emerald-400 min-w-[160px]">
+              <option value="">All jobs</option>
+              {jobs.map((j: any) => (
+                <option key={j.id} value={j.id}>{j.title}</option>
+              ))}
+            </select>
+            {inboxCandidates.length > 0 && (
               <button onClick={acceptAll}
-                className="text-xs px-3 py-1.5 rounded-lg font-medium text-white" style={{ background: '#0A3D2E' }}>
+                className="text-xs px-3 py-1.5 rounded-lg font-medium text-white whitespace-nowrap" style={{ background: '#0A3D2E' }}>
                 Accept all ({inboxCandidates.length}) → Talent Pool
               </button>
-            </div>
-          )}
+            )}
+          </div>
         </div>
 
         {isLoading ? (
