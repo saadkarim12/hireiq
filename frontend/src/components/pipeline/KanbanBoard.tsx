@@ -27,7 +27,7 @@ export function KanbanBoard({ stages, candidates, pipelineCounts, onCandidateCli
   )
 
   const candidatesByStage = stages.reduce((acc, stage) => {
-    acc[stage.key] = candidates.filter(c => c.pipelineStage === stage.key)
+    acc[stage.key] = candidates.filter(c => (stage as any).stages ? (stage as any).stages.includes(c.pipelineStage) : c.pipelineStage === stage.key)
     return acc
   }, {} as Record<PipelineStage, CandidateSummary[]>)
 
