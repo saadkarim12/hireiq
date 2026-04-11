@@ -19,9 +19,16 @@ function ScoreBadge({ score }: { score: number | null }) {
 
 export default function TalentPoolPage() {
   const router = useRouter()
+  const [selectedJobId, setSelectedJobId] = useState('')
   const [search, setSearch] = useState('')
   const [filterSource, setFilterSource] = useState('')
   const [filterScore, setFilterScore] = useState('')
+
+  const { data: jobsRes } = useQuery({
+    queryKey: ['jobs-list'],
+    queryFn: () => api.get<any[]>('/jobs'),
+  })
+  const jobs = jobsRes?.data?.data || []
 
   const { data: poolRes, isLoading } = useQuery({
     queryKey: ['talent-pool', search, filterSource, filterScore],
@@ -90,6 +97,25 @@ export default function TalentPoolPage() {
           <option value="55">Good match (55+)</option>
           <option value="40">Any scored (40+)</option>
         </select>
+      </div>
+
+      {/* Match to job bar */}
+      <div className="bg-white border border-gray-200 rounded-xl p-4 mb-4 flex items-center gap-3">
+        <span className="text-sm font-medium text-gray-700 whitespace-nowrap">Match to job</span>
+        <select value={selectedJobId} onChange={e => setSelectedJobId(e.target.value)}
+          className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 outline-none focus:border-emerald-400">
+          <option value="">— Select a job to find matches —</option>
+          {jobs.map((j: any) => (
+            <option key={j.id} value={j.id}>{j.title} — {j.hiringCompany}</option>
+          ))}
+        </select>
+        <button
+          onClick={() => selectedJobId && router.push(`/jobs/${selectedJobId}/talent-matches`)}
+          disabled={!selectedJobId}
+          className="px-5 py-2 text-sm font-semibold text-white rounded-xl disabled:opacity-40 transition-all flex items-center gap-2"
+          style={{ background: '#0A3D2E' }}>
+          Find Matches →
+        </button>
       </div>
 
       {/* Candidates table */}
