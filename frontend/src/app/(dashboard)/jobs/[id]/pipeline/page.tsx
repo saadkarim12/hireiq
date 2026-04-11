@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { jobsApi } from '@/api/jobs'
 import { candidatesApi } from '@/api/candidates'
-import { TopBar } from '@/components/layout/TopBar'
 import { KanbanBoard } from '@/components/pipeline/KanbanBoard'
 import { CandidatePanel } from '@/components/candidates/CandidatePanel'
 import { JobStatusBadge } from '@/components/jobs/JobStatusBadge'
@@ -129,7 +128,6 @@ ${job.locationCountry === 'AE' ? '#UAEJobs #DubaiJobs #AbuDhabiJobs' : '#SaudiJo
 
   return (
     <>
-      <TopBar />
       <div className="flex flex-col h-full overflow-hidden">
         {/* Sub-header */}
         <div className="px-6 py-4 bg-white border-b border-gray-200 flex items-center justify-between flex-shrink-0">

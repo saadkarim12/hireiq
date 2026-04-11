@@ -12,7 +12,6 @@ import {
   SparklesIcon,
   CalendarIcon,
 } from '@heroicons/react/24/outline'
-import { TopBar } from '@/components/layout/TopBar'
 
 export default function DashboardPage() {
   const { data: kpis, isLoading: kpisLoading } = useQuery({
@@ -30,8 +29,7 @@ export default function DashboardPage() {
 
   return (
     <>
-      <TopBar />
-      <div className="p-6 space-y-6">
+            <div className="p-6 space-y-6">
         {/* KPI Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
           <KpiCard

@@ -3,7 +3,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { analyticsApi } from '@/api/analytics'
-import { TopBar } from '@/components/layout/TopBar'
 import { KpiCard } from '@/components/dashboard/KpiCard'
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,

@@ -23,6 +23,7 @@ export default function TalentPoolPage() {
   const [search, setSearch] = useState('')
   const [filterSource, setFilterSource] = useState('')
   const [filterScore, setFilterScore] = useState('')
+  const [selectedCandidate, setSelectedCandidate] = useState<any>(null)
 
   const { data: jobsRes } = useQuery({
     queryKey: ['jobs-list'],
@@ -44,6 +45,25 @@ export default function TalentPoolPage() {
   const sourceBreakdown = candidates.reduce((acc: any, c: any) => {
     const s = c.sourceChannel || 'other'; acc[s] = (acc[s] || 0) + 1; return acc
   }, {})
+
+  const handleDownload = async (candidateId: string, name: string) => {
+    try {
+      const token = (api as any).defaults?.headers?.common?.Authorization || ''
+      const res = await fetch(`http://localhost:3001/api/v1/candidates/${candidateId}/cv-download`, {
+        headers: token ? { Authorization: token } : {}
+      })
+      if (!res.ok) { throw new Error('Download failed') }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${name.replace(/[^a-z0-9]/gi, '_')}_CV.txt`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      toast.error('Download failed')
+    }
+  }
 
   return (
     <div className="max-w-5xl mx-auto">
@@ -139,7 +159,7 @@ export default function TalentPoolPage() {
           <table className="w-full">
             <thead>
               <tr style={{ background: '#0A3D2E' }}>
-                {['Name','Current Role','Experience','Score','Source','Added','Status'].map(h => (
+                {['Name','Current Role','Experience','Score','Source','Added','Status',''].map(h => (
                   <th key={h} className="px-4 py-3 text-left text-xs font-semibold" style={{ color: '#C9A84C' }}>{h}</th>
                 ))}
               </tr>
@@ -153,7 +173,7 @@ export default function TalentPoolPage() {
                         style={{ background: '#E8F5EE', color: '#0A3D2E' }}>
                         {c.fullName?.split(' ').map((n: string) => n[0]).join('').slice(0,2) || '??'}
                       </div>
-                      <span className="text-sm font-medium text-gray-800">{c.fullName || 'Unknown'}</span>
+                      <button onClick={() => setSelectedCandidate(c)} className="text-sm font-medium text-gray-800 hover:underline text-left" style={{ color: '#0A3D2E' }}>{c.fullName || 'Unknown'}</button>
                     </div>
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-600">{c.currentRole || '—'}</td>
@@ -176,12 +196,138 @@ export default function TalentPoolPage() {
                       {c.pipelineStage === 'evaluated' ? 'In Pool' : c.pipelineStage?.replace(/_/g,' ')}
                     </span>
                   </td>
+                  <td className="px-3 py-3">
+                    <button
+                      onClick={() => handleDownload(c.id, c.fullName || 'candidate')}
+                      className="text-xs px-2.5 py-1.5 rounded-lg border font-medium transition-all hover:bg-gray-50"
+                      style={{ borderColor: '#0A3D2E', color: '#0A3D2E' }}>
+                      ↓ CV
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         )}
       </div>
+
+      {/* Candidate Profile Drawer */}
+      {selectedCandidate && (
+        <div className="fixed inset-0 z-50 flex justify-end" onClick={() => setSelectedCandidate(null)}>
+          <div className="absolute inset-0 bg-black/30" />
+          <div className="relative w-full max-w-md bg-white h-full shadow-2xl overflow-y-auto"
+            onClick={e => e.stopPropagation()}>
+            <div className="p-6">
+              {/* Header */}
+              <div className="flex items-start justify-between mb-5">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-full flex items-center justify-center text-base font-bold flex-shrink-0"
+                    style={{ background: '#E8F5EE', color: '#0A3D2E' }}>
+                    {selectedCandidate.fullName?.split(' ').map((n: string) => n[0]).join('').slice(0,2)}
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-bold" style={{ color: '#0A3D2E' }}>{selectedCandidate.fullName}</h2>
+                    <p className="text-sm text-gray-500">{selectedCandidate.currentRole}</p>
+                  </div>
+                </div>
+                <button onClick={() => setSelectedCandidate(null)} className="text-gray-400 hover:text-gray-600 text-xl">×</button>
+              </div>
+
+              {/* Score badge */}
+              {selectedCandidate.compositeScore && (
+                <div className="mb-4 p-3 rounded-xl flex items-center gap-3"
+                  style={{ background: selectedCandidate.compositeScore >= 75 ? '#DCFCE7' : selectedCandidate.compositeScore >= 55 ? '#FEF3C7' : '#FEE2E2' }}>
+                  <span className="text-2xl font-bold"
+                    style={{ color: selectedCandidate.compositeScore >= 75 ? '#166534' : selectedCandidate.compositeScore >= 55 ? '#92400E' : '#991B1B' }}>
+                    {selectedCandidate.compositeScore}
+                  </span>
+                  <div>
+                    <p className="text-xs font-semibold" style={{ color: '#374151' }}>HireIQ Score</p>
+                    <p className="text-xs text-gray-500">
+                      {selectedCandidate.compositeScore >= 75 ? 'Strong match' : selectedCandidate.compositeScore >= 55 ? 'Good match' : 'Partial match'}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Details */}
+              <div className="space-y-4">
+                <div>
+                  <p className="text-xs font-medium text-gray-400 uppercase mb-1">Contact</p>
+                  <p className="text-sm text-gray-700">{selectedCandidate.email || '—'}</p>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-xs font-medium text-gray-400 uppercase mb-1">Experience</p>
+                    <p className="text-sm font-medium text-gray-700">{selectedCandidate.yearsExperience ? `${selectedCandidate.yearsExperience} years` : '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-gray-400 uppercase mb-1">Salary Expected</p>
+                    <p className="text-sm font-medium text-gray-700">
+                      {selectedCandidate.salaryExpectation ? `AED ${selectedCandidate.salaryExpectation.toLocaleString()}` : '—'}
+                    </p>
+                  </div>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-gray-400 uppercase mb-1">Source</p>
+                  <span className="text-xs px-2 py-0.5 rounded-full text-white capitalize"
+                    style={{ background: '#0A3D2E' }}>
+                    {(selectedCandidate.sourceChannel || 'other').replace(/_/g,' ')}
+                  </span>
+                </div>
+
+                {/* Skills */}
+                {(selectedCandidate.cvStructured as any)?.skills?.length > 0 && (
+                  <div>
+                    <p className="text-xs font-medium text-gray-400 uppercase mb-2">Skills</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {((selectedCandidate.cvStructured as any)?.skills || []).map((s: string, i: number) => (
+                        <span key={i} className="text-xs px-2 py-0.5 rounded-full"
+                          style={{ background: '#E8F5EE', color: '#0A3D2E' }}>
+                          {s}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Job History */}
+                <div>
+                  <p className="text-xs font-medium text-gray-400 uppercase mb-2">Applied Jobs</p>
+                  <div className="space-y-2">
+                    <div className="p-3 rounded-xl border border-gray-100">
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-medium text-gray-800">
+                          {(selectedCandidate.dataTags as any)?.jobTitle || selectedCandidate.currentRole || 'Current role'}
+                        </p>
+                        {selectedCandidate.compositeScore && (
+                          <span className="text-xs font-bold px-2 py-0.5 rounded-full"
+                            style={{ background: '#E8F5EE', color: '#0A3D2E' }}>
+                            {selectedCandidate.compositeScore}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-gray-400 mt-0.5 capitalize">
+                        {selectedCandidate.pipelineStage?.replace(/_/g,' ')} · {selectedCandidate.createdAt ? new Date(selectedCandidate.createdAt).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' }) : ''}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="mt-6 flex gap-3">
+                <button
+                  onClick={() => handleDownload(selectedCandidate.id, selectedCandidate.fullName || 'candidate')}
+                  className="flex-1 py-2.5 text-sm font-semibold rounded-xl border-2 transition-all"
+                  style={{ borderColor: '#0A3D2E', color: '#0A3D2E' }}>
+                  ↓ Download CV
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
