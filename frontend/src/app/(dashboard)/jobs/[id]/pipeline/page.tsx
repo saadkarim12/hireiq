@@ -16,7 +16,7 @@ import clsx from 'clsx'
 interface PageProps { params: { id: string } }
 
 const STAGES: { key: PipelineStage; label: string; color: string }[] = [
-  { key: 'applied',      label: 'Applied',      color: 'border-slate-300' },
+  { key: 'applied', stages: ['applied','evaluated','screening'],      label: 'Applied',      color: 'border-slate-300' },
   { key: 'shortlisted',  label: 'Shortlisted',  color: 'border-amber-400' },
   { key: 'interviewing', label: 'Interviewing',  color: 'border-purple-400' },
   { key: 'offered',      label: 'Offered',       color: 'border-cyan-400' },
