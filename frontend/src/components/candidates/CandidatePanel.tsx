@@ -112,13 +112,13 @@ export function CandidatePanel({ candidateId, onClose, onStatusUpdate }: Candida
         {!isLoading && candidate && (
           <div className="px-6 py-4 bg-gray-50 border-b border-gray-200 flex-shrink-0">
             <div className="flex items-center justify-around">
-              <ScoreBadge score={(candidate.scores?.[compositeScore] ?? (candidate as any).compositeScore ?? null)} size="lg" showLabel label="Overall" />
+              <ScoreBadge score={(candidate.scores?.[\'compositeScore\'] ?? (candidate as any).compositeScore ?? null)} size="lg" showLabel label="Overall" />
               <div className="w-px h-12 bg-gray-200" />
-              <ScoreBadge score={(candidate.scores?.[cvMatchScore] ?? (candidate as any).cvMatchScore ?? null)} size="md" showLabel label="CV Match" />
+              <ScoreBadge score={(candidate.scores?.[\'cvMatchScore\'] ?? (candidate as any).cvMatchScore ?? null)} size="md" showLabel label="CV Match" />
               <div className="w-px h-12 bg-gray-200" />
-              <ScoreBadge score={(candidate.scores?.[commitmentScore] ?? (candidate as any).commitmentScore ?? null)} size="md" showLabel label="Commitment" />
+              <ScoreBadge score={(candidate.scores?.[\'commitmentScore\'] ?? (candidate as any).commitmentScore ?? null)} size="md" showLabel label="Commitment" />
               <div className="w-px h-12 bg-gray-200" />
-              <ScoreBadge score={(candidate.scores?.[salaryFitScore] ?? (candidate as any).salaryFitScore ?? null)} size="md" showLabel label="Salary Fit" />
+              <ScoreBadge score={(candidate.scores?.[\'salaryFitScore\'] ?? (candidate as any).salaryFitScore ?? null)} size="md" showLabel label="Salary Fit" />
             </div>
 
             {/* Authenticity flag */}
