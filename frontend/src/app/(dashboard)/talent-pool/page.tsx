@@ -24,6 +24,7 @@ export default function TalentPoolPage() {
   const [filterSource, setFilterSource] = useState('')
   const [filterScore, setFilterScore] = useState('')
   const [selectedCandidate, setSelectedCandidate] = useState<any>(null)
+  const [inviting, setInviting] = useState(false)
 
   const { data: jobsRes } = useQuery({
     queryKey: ['jobs-list'],
@@ -62,6 +63,31 @@ export default function TalentPoolPage() {
       URL.revokeObjectURL(url)
     } catch {
       toast.error('Download failed')
+    }
+  }
+
+
+  const handleInviteToScreening = async (candidate: any) => {
+    if (!selectedJobId) { 
+      toast.error('Please select a job first using Match to Job')
+      return 
+    }
+    setInviting(true)
+    try {
+      const res = await api.post(`/jobs/${selectedJobId}/invite-from-pool`, {
+        candidateIds: [candidate.id]
+      })
+      const data = res.data as any
+      if (data.success) {
+        toast.success(`${candidate.fullName} invited — they will appear in the job pipeline`)
+        setSelectedCandidate(null)
+      } else {
+        toast.error('Invite failed')
+      }
+    } catch {
+      toast.error('Invite failed — is backend running?')
+    } finally {
+      setInviting(false)
     }
   }
 
@@ -230,7 +256,14 @@ export default function TalentPoolPage() {
                     <p className="text-sm text-gray-500">{selectedCandidate.currentRole}</p>
                   </div>
                 </div>
+                <div className="flex flex-col items-end gap-1">
+                {selectedJobId && (
+                  <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: '#E8F5EE', color: '#0A3D2E' }}>
+                    {jobs.find((j: any) => j.id === selectedJobId)?.title || 'Job selected'}
+                  </span>
+                )}
                 <button onClick={() => setSelectedCandidate(null)} className="text-gray-400 hover:text-gray-600 text-xl">×</button>
+              </div>
               </div>
 
               {/* Score badge */}
@@ -316,10 +349,25 @@ export default function TalentPoolPage() {
               </div>
 
               {/* Actions */}
-              <div className="mt-6 flex gap-3">
+              <div className="mt-6 flex flex-col gap-2">
+                {selectedJobId ? (
+                  <button
+                    onClick={() => handleInviteToScreening(selectedCandidate)}
+                    disabled={inviting}
+                    className="w-full py-2.5 text-sm font-semibold text-white rounded-xl flex items-center justify-center gap-2 disabled:opacity-60"
+                    style={{ background: '#0A3D2E' }}>
+                    {inviting
+                      ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />Inviting...</>
+                      : '💬 Invite to WhatsApp Screening'}
+                  </button>
+                ) : (
+                  <div className="p-3 rounded-xl text-xs text-center" style={{ background: '#FEF3C7', color: '#92400E' }}>
+                    Select a job using "Match to job" above to invite this candidate
+                  </div>
+                )}
                 <button
                   onClick={() => handleDownload(selectedCandidate.id, selectedCandidate.fullName || 'candidate')}
-                  className="flex-1 py-2.5 text-sm font-semibold rounded-xl border-2 transition-all"
+                  className="w-full py-2.5 text-sm font-semibold rounded-xl border-2 transition-all"
                   style={{ borderColor: '#0A3D2E', color: '#0A3D2E' }}>
                   ↓ Download CV
                 </button>
