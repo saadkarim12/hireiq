@@ -112,21 +112,21 @@ export function CandidatePanel({ candidateId, onClose, onStatusUpdate }: Candida
         {!isLoading && candidate && (
           <div className="px-6 py-4 bg-gray-50 border-b border-gray-200 flex-shrink-0">
             <div className="flex items-center justify-around">
-              <ScoreBadge score={candidate.scores.compositeScore} size="lg" showLabel label="Overall" />
+              <ScoreBadge score={(candidate as any).compositeScore ?? candidate.scores?.compositeScore ?? null} size="lg" showLabel label="Overall" />
               <div className="w-px h-12 bg-gray-200" />
-              <ScoreBadge score={candidate.scores.cvMatchScore} size="md" showLabel label="CV Match" />
+              <ScoreBadge score={(candidate as any).cvMatchScore ?? candidate.scores?.cvMatchScore ?? null} size="md" showLabel label="CV Match" />
               <div className="w-px h-12 bg-gray-200" />
-              <ScoreBadge score={candidate.scores.commitmentScore} size="md" showLabel label="Commitment" />
+              <ScoreBadge score={(candidate as any).commitmentScore ?? candidate.scores?.commitmentScore ?? null} size="md" showLabel label="Commitment" />
               <div className="w-px h-12 bg-gray-200" />
-              <ScoreBadge score={candidate.scores.salaryFitScore} size="md" showLabel label="Salary Fit" />
+              <ScoreBadge score={(candidate as any).salaryFitScore ?? candidate.scores?.salaryFitScore ?? null} size="md" showLabel label="Salary Fit" />
             </div>
 
             {/* Authenticity flag */}
-            {candidate.authenticityFlag && candidate.authenticityFlag !== 'none' && (
+            {(candidate as any).authenticityFlag && (candidate as any).authenticityFlag !== 'none' && (
               <div className="mt-3 flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
                 <ExclamationTriangleIcon className="w-4 h-4 text-amber-500 flex-shrink-0" />
                 <p className="text-xs text-amber-700 font-medium">
-                  This CV shows {candidate.authenticityFlag} signs of AI optimisation — verify key claims in interview
+                  This CV shows {(candidate as any).authenticityFlag} signs of AI optimisation — verify key claims in interview
                 </p>
               </div>
             )}
