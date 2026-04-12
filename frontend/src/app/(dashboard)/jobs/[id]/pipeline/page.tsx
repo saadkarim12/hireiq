@@ -16,11 +16,11 @@ import clsx from 'clsx'
 interface PageProps { params: { id: string } }
 
 const STAGES: { key: PipelineStage; label: string; color: string }[] = [
-  { key: 'applied', stages: ['applied','evaluated','screening'],      label: 'Applied',      color: 'border-slate-300' },
-  { key: 'shortlisted',  label: 'Shortlisted',  color: 'border-amber-400' },
-  { key: 'interviewing', label: 'Interviewing',  color: 'border-purple-400' },
-  { key: 'offered',      label: 'Offered',       color: 'border-cyan-400' },
-  { key: 'hired',        label: 'Hired',         color: 'border-green-500' },
+  { key: 'applied', stages: ['applied','evaluated','screening'], label: 'Applied', color: 'border-slate-300' },
+  { key: 'shortlisted',  label: 'L1 — CV Screened',   color: 'border-amber-400' },
+  { key: 'interviewing', label: 'L2 — WA Screened',   color: 'border-blue-400' },
+  { key: 'offered',      label: 'L3 — Interviewed',   color: 'border-purple-400' },
+  { key: 'hired', label: 'Final Shortlist', color: 'border-green-500' },
 ]
 
 export default function PipelinePage({ params }: PageProps) {
