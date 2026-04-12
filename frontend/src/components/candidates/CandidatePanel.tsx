@@ -216,6 +216,60 @@ export function CandidatePanel({ candidateId, onClose, onStatusUpdate }: Candida
                     </div>
                   )}
 
+                  {/* CV Screening Score */}
+                  {((candidate as any).compositeScore || (candidate as any).cvMatchScore) && (
+                    <div className="rounded-xl p-4 mb-2"
+                      style={{ background: (candidate as any).compositeScore >= 75 ? '#DCFCE7' : (candidate as any).compositeScore >= 55 ? '#FEF3C7' : '#FEE2E2' }}>
+                      <div className="flex items-center gap-3 mb-3">
+                        <span className="text-2xl font-bold"
+                          style={{ color: (candidate as any).compositeScore >= 75 ? '#166534' : (candidate as any).compositeScore >= 55 ? '#92400E' : '#991B1B' }}>
+                          {(candidate as any).compositeScore || (candidate as any).cvMatchScore}
+                        </span>
+                        <div>
+                          <p className="text-sm font-semibold text-gray-800">CV Screening Score</p>
+                          <p className="text-xs text-gray-500">Skills + experience match against job criteria</p>
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        {[
+                          { label: 'CV Match', value: (candidate as any).cvMatchScore, weight: '40%' },
+                          { label: 'Commitment', value: (candidate as any).commitmentScore, weight: '40%', pending: true },
+                          { label: 'Salary Fit', value: (candidate as any).salaryFitScore, weight: '20%' },
+                        ].map(({ label, value, weight, pending }) => (
+                          <div key={label}>
+                            <div className="flex justify-between text-xs mb-1">
+                              <span className="text-gray-600 font-medium">{label} <span className="text-gray-400">({weight})</span></span>
+                              {value
+                                ? <span className="font-bold" style={{ color: value >= 75 ? '#166534' : value >= 55 ? '#92400E' : '#991B1B' }}>{value}/100</span>
+                                : <span className="text-gray-400 italic">{pending ? 'After WhatsApp' : 'Pending'}</span>}
+                            </div>
+                            <div className="h-1.5 bg-white/60 rounded-full overflow-hidden">
+                              <div className="h-full rounded-full" style={{
+                                width: value ? `${value}%` : '0%',
+                                background: value >= 75 ? '#0A3D2E' : value >= 55 ? '#C9A84C' : value ? '#EF4444' : 'transparent'
+                              }} />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Skill Evidence */}
+                  {(candidate as any).dataTags?.evidence?.mustHaveSkills?.length > 0 && (
+                    <div>
+                      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Skills Match</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {((candidate as any).dataTags?.evidence?.mustHaveSkills || []).map((s: any, i: number) => (
+                          <span key={i} className="text-xs px-2.5 py-1 rounded-lg font-medium"
+                            style={{ background: s.found ? '#DCFCE7' : '#FEE2E2', color: s.found ? '#166534' : '#991B1B' }}>
+                            {s.found ? '✓' : '✗'} {s.skill}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   {/* AI Summary */}
                   {candidate.aiSummary && (
                     <div className="bg-brand-blue/5 rounded-xl p-4">
