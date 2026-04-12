@@ -74,22 +74,22 @@ export function CandidateCard({ candidate, onClick, isDragging }: CandidateCardP
             <p className="text-xs text-gray-500 truncate mt-0.5">{candidate.currentRole}</p>
           )}
         </div>
-        {candidate.scores.compositeScore !== null && (
+        {(candidate.scores?.compositeScore ?? candidate.compositeScore) !== null && (
           <div className={clsx(
             'flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold',
-            candidate.scores.compositeScore >= 80 ? 'bg-green-50 text-green-700' :
-            candidate.scores.compositeScore >= 60 ? 'bg-amber-50 text-amber-700' :
+            (candidate.scores?.compositeScore ?? candidate.compositeScore) >= 80 ? 'bg-green-50 text-green-700' :
+            (candidate.scores?.compositeScore ?? candidate.compositeScore) >= 60 ? 'bg-amber-50 text-amber-700' :
             'bg-red-50 text-red-600'
           )}>
-            {candidate.scores.compositeScore}
+            {(candidate.scores?.compositeScore ?? candidate.compositeScore)}
           </div>
         )}
       </div>
 
       {/* Score bar */}
-      {candidate.scores.compositeScore !== null && (
+      {(candidate.scores?.compositeScore ?? candidate.compositeScore) !== null && (
         <div className="mb-2.5">
-          <ScoreBar score={candidate.scores.compositeScore} />
+          <ScoreBar score={(candidate.scores?.compositeScore ?? candidate.compositeScore)} />
         </div>
       )}
 
@@ -117,7 +117,7 @@ export function CandidateCard({ candidate, onClick, isDragging }: CandidateCardP
         <span className="text-xs text-gray-400">
           {formatDistanceToNow(new Date(candidate.createdAt), { addSuffix: true })}
         </span>
-        {candidate.scores.salaryFitScore !== null && candidate.scores.salaryFitScore < 50 && (
+        {(candidate.scores?.[salaryFitScore] ?? (candidate as any).salaryFitScore) !== null && (candidate.scores?.[salaryFitScore] ?? (candidate as any).salaryFitScore) < 50 && (
           <span className="text-xs text-red-500 font-medium">💰 Salary gap</span>
         )}
       </div>

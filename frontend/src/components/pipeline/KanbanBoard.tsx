@@ -11,7 +11,7 @@ import { CandidateCard } from './CandidateCard'
 import type { CandidateSummary, PipelineStage, PipelineCounts } from '@/types'
 
 interface KanbanBoardProps {
-  stages: { key: PipelineStage; label: string; color: string }[]
+  stages: { key: PipelineStage; label: string; color: string; stages?: string[] }[]
   candidates: CandidateSummary[]
   pipelineCounts?: PipelineCounts | null
   onCandidateClick: (candidateId: string) => void
