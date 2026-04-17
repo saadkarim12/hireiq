@@ -70,6 +70,28 @@ export default function TalentPoolPage() {
 
   // Re-score candidate against selected job when drawer opens
   const [liveScore, setLiveScore] = useState<any>(null)
+  const [matchedCandidates, setMatchedCandidates] = useState<any[]>([])
+  // Display logic: if job selected, show re-scored matches; otherwise show all pool candidates
+  const displayCandidates = selectedJobId && matchedCandidates.length > 0
+    ? matchedCandidates.map((m: any) => ({
+        ...m,
+        // Override score with fresh job match score
+        compositeScore: m.jobMatchScore ?? m.compositeScore,
+        skillsMatch: m.skillsMatched || [],
+      }))
+    : candidates
+
+  
+  // When job is selected, re-score all candidates against it
+  useEffect(() => {
+    if (selectedJobId) {
+      api.get<any[]>(`/jobs/${selectedJobId}/talent-matches?minScore=0`)
+        .then(res => setMatchedCandidates(res.data?.data || []))
+        .catch(() => setMatchedCandidates([]))
+    } else {
+      setMatchedCandidates([])
+    }
+  }, [selectedJobId])
   useEffect(() => {
     if (selectedCandidate && selectedJobId) {
       setLiveScore(null)
@@ -117,7 +139,7 @@ export default function TalentPoolPage() {
         <div>
           <h1 className="text-2xl font-bold" style={{ color: '#0A3D2E' }}>Talent Pool</h1>
           <p className="text-gray-500 text-sm mt-1">
-            {candidates.length} accepted candidates — ready to match against your open jobs
+            {selectedJobId ? `${displayCandidates.length} candidates re-scored for this job` : `${candidates.length} accepted candidates — ready to match against your open jobs`}
           </p>
         </div>
         <button onClick={() => router.push('/cv-inbox')}
@@ -175,13 +197,11 @@ export default function TalentPoolPage() {
             <option key={j.id} value={j.id}>{j.title} — {j.hiringCompany}</option>
           ))}
         </select>
-        <button
-          onClick={() => selectedJobId && router.push(`/jobs/${selectedJobId}/talent-matches`)}
-          disabled={!selectedJobId}
-          className="px-5 py-2 text-sm font-semibold text-white rounded-xl disabled:opacity-40 transition-all whitespace-nowrap"
-          style={{ background: '#0A3D2E' }}>
-          Find Matches →
-        </button>
+        {selectedJobId && (
+          <button onClick={() => setSelectedJobId('')} className="px-3 py-2 text-xs font-medium border border-gray-200 rounded-xl">
+            Clear filter
+          </button>
+        )}
       </div>
 
       {/* Candidates table */}
@@ -190,7 +210,7 @@ export default function TalentPoolPage() {
           <div className="flex items-center justify-center py-16">
             <div className="animate-spin w-8 h-8 border-2 rounded-full" style={{ borderColor: '#C9A84C', borderTopColor: 'transparent' }} />
           </div>
-        ) : candidates.length === 0 ? (
+        ) : displayCandidates.length === 0 ? (
           <div className="text-center py-16 text-gray-400">
             <div className="text-4xl mb-3">👥</div>
             <p className="font-medium">No candidates in the pool yet</p>
@@ -211,7 +231,7 @@ export default function TalentPoolPage() {
               </tr>
             </thead>
             <tbody>
-              {candidates.map((c: any, i: number) => (
+              {displayCandidates.map((c: any, i: number) => (
                 <tr key={c.id} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
