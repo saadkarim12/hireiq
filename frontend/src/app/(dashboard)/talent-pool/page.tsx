@@ -171,15 +171,17 @@ export default function TalentPoolPage() {
         <select value={selectedJobId} onChange={e => setSelectedJobId(e.target.value)}
           className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 outline-none focus:border-emerald-400">
           <option value="">— Select a job to find matches —</option>
-          {jobs.map((j: any) => (
+          {jobs.filter((j: any, idx: number, arr: any[]) => arr.findIndex((x: any) => x.id === j.id) === idx).map((j: any) => (
             <option key={j.id} value={j.id}>{j.title} — {j.hiringCompany}</option>
           ))}
         </select>
-        {selectedJobId && (
-          <span className="text-xs px-3 py-1.5 rounded-full font-medium" style={{ background: '#FEF3C7', color: '#92400E' }}>
-            Click any candidate to see re-score
-          </span>
-        )}
+        <button
+          onClick={() => selectedJobId && router.push(`/jobs/${selectedJobId}/talent-matches`)}
+          disabled={!selectedJobId}
+          className="px-5 py-2 text-sm font-semibold text-white rounded-xl disabled:opacity-40 transition-all whitespace-nowrap"
+          style={{ background: '#0A3D2E' }}>
+          Find Matches →
+        </button>
       </div>
 
       {/* Candidates table */}
