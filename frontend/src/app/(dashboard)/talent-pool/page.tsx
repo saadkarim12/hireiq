@@ -123,6 +123,11 @@ export default function TalentPoolPage() {
       if (data.success) {
         toast.success(`${candidate.fullName} invited — they will appear in the job pipeline`)
         setSelectedCandidate(null)
+        // Refresh the matched candidates list to remove the just-invited one
+        if (selectedJobId) {
+          const refresh = await api.get<any[]>(`/jobs/${selectedJobId}/talent-matches?minScore=0`)
+          setMatchedCandidates((refresh.data?.data as any)?.matches || [])
+        }
       } else {
         toast.error('Invite failed')
       }
