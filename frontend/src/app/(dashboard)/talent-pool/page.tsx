@@ -448,9 +448,10 @@ export default function TalentPoolPage() {
                   <div>
                     <p className="text-xs font-medium text-gray-400 uppercase mb-2">Certifications</p>
                     <div className="flex flex-wrap gap-1.5">
-                      {((selectedCandidate.cvStructured as any)?.certifications || []).slice(0, 8).map((c: string, i: number) => (
+                      {((selectedCandidate.cvStructured as any)?.certifications || []).slice(0, 8).map((c: any, i: number) => (
                         <span key={i} className="text-xs px-2 py-1 rounded-md font-medium" style={{ background: '#EFF6FF', color: '#1D4ED8' }}>
-                          {c}
+                          {typeof c === 'string' ? c : (c.name || c.title || JSON.stringify(c))}
+                          {typeof c === 'object' && c.year ? ` (${c.year})` : ''}
                         </span>
                       ))}
                     </div>
