@@ -324,39 +324,49 @@ export default function TalentPoolPage() {
               )}
 
 
-              {/* Re-scored for selected job */}
+              {/* CV-stage score for selected job */}
               {selectedJobId && (
                 <div className="mb-4 p-4 rounded-xl border-2" style={{ borderColor: '#C9A84C', background: '#FDF6E3' }}>
-                  <div className="flex items-center justify-between mb-2">
-                    <div>
-                      <p className="text-xs font-bold uppercase tracking-wide" style={{ color: '#92400E' }}>
-                        Match for: {jobs.find((j: any) => j.id === selectedJobId)?.title}
-                      </p>
-                      <p className="text-[10px] text-gray-500 mt-0.5">
-                        Fresh score against this job criteria (not stored)
-                      </p>
-                    </div>
-                    {liveScore ? (
-                      <span className="text-3xl font-bold"
-                        style={{ color: liveScore.score >= 75 ? '#166534' : liveScore.score >= 55 ? '#92400E' : '#991B1B' }}>
-                        {liveScore.score}
-                      </span>
-                    ) : (
-                      <div className="w-5 h-5 border-2 border-gray-300 border-t-amber-600 rounded-full animate-spin" />
-                    )}
+                  <div className="text-center mb-3">
+                    <p className="text-xs font-bold uppercase tracking-wide mb-2" style={{ color: '#92400E' }}>
+                      Match for: {jobs.find((j: any) => j.id === selectedJobId)?.title}
+                    </p>
+                    <span className="text-5xl font-bold"
+                      style={{ color: (selectedCandidate.cvMatchScore || 0) >= 75 ? '#166534' : (selectedCandidate.cvMatchScore || 0) >= 55 ? '#92400E' : '#991B1B' }}>
+                      {selectedCandidate.cvMatchScore || '—'}
+                    </span>
+                    <p className="text-xs font-semibold text-gray-700 mt-1">CV Screening Score</p>
+                    <p className="text-[10px] text-gray-500">Skills + experience match for this job</p>
                   </div>
-                  {liveScore?.skills?.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5 mt-3">
-                      {liveScore.skills.slice(0, 8).map((s: any, i: number) => (
-                        <span key={i} className="text-xs px-2 py-0.5 rounded-md font-medium"
-                          style={{ background: s.found ? '#DCFCE7' : '#FEE2E2', color: s.found ? '#166534' : '#991B1B' }}>
-                          {s.found ? '✓' : '✗'} {s.skill || s}
-                        </span>
-                      ))}
+
+                  {((selectedCandidate.dataTags as any)?.evidence?.mustHaveSkills?.length > 0) && (
+                    <div className="pt-3 border-t border-amber-200/50">
+                      <p className="text-[10px] font-bold text-gray-500 uppercase mb-1.5">Required Skills</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {((selectedCandidate.dataTags as any).evidence.mustHaveSkills || []).map((s: any, i: number) => (
+                          <span key={i} className="text-xs px-2 py-0.5 rounded-md font-medium"
+                            style={{ background: s.found ? '#DCFCE7' : '#FEE2E2', color: s.found ? '#166534' : '#991B1B' }}>
+                            {s.found ? '✓' : '✗'} {s.skill}
+                          </span>
+                        ))}
+                      </div>
                     </div>
                   )}
+
+                  {selectedCandidate.hardFilterPass !== undefined && (
+                    <div className="mt-2 text-[10px] text-center">
+                      {selectedCandidate.hardFilterPass
+                        ? <span className="text-green-700 font-medium">✓ Passes all required filters</span>
+                        : <span className="text-red-700 font-medium">✗ {selectedCandidate.hardFilterFailReason || 'Fails required filters'}</span>}
+                    </div>
+                  )}
+
+                  <p className="text-[10px] text-center text-gray-500 mt-3 italic">
+                    Full screening (commitment + salary fit) happens after WhatsApp invitation
+                  </p>
                 </div>
               )}
+
               {/* Details */}
               <div className="space-y-4">
                 <div>
