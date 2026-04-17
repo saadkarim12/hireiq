@@ -197,6 +197,64 @@ ${job.locationCountry === 'AE' ? '#UAEJobs #DubaiJobs #AbuDhabiJobs' : '#SaudiJo
           </div>
         )}
 
+
+        {/* Pipeline Funnel Summary */}
+        <div className="mb-4 bg-white border border-gray-200 rounded-2xl p-5">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-base font-semibold" style={{ color: '#0A3D2E' }}>Pipeline Overview</h2>
+              <p className="text-xs text-gray-400 mt-0.5">Conversion funnel for this job</p>
+            </div>
+            {(() => {
+              const applied = candidates.filter(c => ['applied','evaluated','screening','shortlisted','interviewing','offered','hired'].includes(c.pipelineStage)).length
+              const finalCount = candidates.filter(c => c.pipelineStage === 'hired').length
+              const rate = applied > 0 ? Math.round((finalCount / applied) * 100) : 0
+              return (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-gray-400">Conversion:</span>
+                  <span className="text-sm font-bold px-2.5 py-1 rounded-full" style={{ background: '#E8F5EE', color: '#0A3D2E' }}>{rate}%</span>
+                </div>
+              )
+            })()}
+          </div>
+
+          <div className="flex items-end gap-1">
+            {(() => {
+              const stages = [
+                { key: 'applied', label: 'Applied', match: ['applied','evaluated','screening'], color: '#64748B', bg: '#F1F5F9' },
+                { key: 'l1', label: 'L1 CV Screened', match: ['shortlisted','interviewing','offered','hired'], color: '#C9A84C', bg: '#FEF3C7' },
+                { key: 'l2', label: 'L2 WA Screened', match: ['interviewing','offered','hired'], color: '#1D4ED8', bg: '#DBEAFE' },
+                { key: 'l3', label: 'L3 Interviewed', match: ['offered','hired'], color: '#7C3AED', bg: '#EDE9FE' },
+                { key: 'final', label: 'Final Shortlist', match: ['hired'], color: '#166534', bg: '#DCFCE7' },
+              ]
+              const max = Math.max(...stages.map(s => candidates.filter(c => s.match.includes(c.pipelineStage)).length), 1)
+
+              return stages.map((s, i) => {
+                const count = candidates.filter(c => s.match.includes(c.pipelineStage)).length
+                const height = count > 0 ? Math.max((count / max) * 80, 20) : 20
+                const prev = i > 0 ? candidates.filter(c => stages[i-1].match.includes(c.pipelineStage)).length : count
+                const dropRate = prev > 0 ? Math.round((count / prev) * 100) : 0
+
+                return (
+                  <div key={s.key} className="flex-1 flex flex-col items-center">
+                    {i > 0 && (
+                      <div className="w-full text-center text-[10px] font-medium text-gray-400 mb-1">
+                        → {dropRate}%
+                      </div>
+                    )}
+                    {i === 0 && <div className="h-4" />}
+                    <div className="w-full rounded-t-xl flex items-end justify-center px-2"
+                      style={{ height: `${height}px`, background: s.bg }}>
+                      <span className="text-xl font-bold mb-1" style={{ color: s.color }}>{count}</span>
+                    </div>
+                    <p className="text-xs font-medium text-center mt-2" style={{ color: s.color }}>{s.label}</p>
+                  </div>
+                )
+              })
+            })()}
+          </div>
+        </div>
+
         {/* Kanban Board */}
         <div className="flex-1 overflow-hidden">
           <KanbanBoard
