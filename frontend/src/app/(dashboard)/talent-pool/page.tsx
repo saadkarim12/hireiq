@@ -307,7 +307,7 @@ export default function TalentPoolPage() {
               </div>
 
               {/* Score badge */}
-              {selectedCandidate.compositeScore && (
+              {!selectedJobId && selectedCandidate.compositeScore && (
                 <div className="mb-4 p-3 rounded-xl flex items-center gap-3"
                   style={{ background: selectedCandidate.compositeScore >= 75 ? '#DCFCE7' : selectedCandidate.compositeScore >= 55 ? '#FEF3C7' : '#FEE2E2' }}>
                   <span className="text-2xl font-bold"
@@ -456,7 +456,7 @@ export default function TalentPoolPage() {
                         <p className="text-sm font-medium text-gray-800">
                           {(selectedCandidate.dataTags as any)?.jobTitle || selectedCandidate.currentRole || 'Current role'}
                         </p>
-                        {selectedCandidate.compositeScore && (
+                        {!selectedJobId && selectedCandidate.compositeScore && (
                           <span className="text-xs font-bold px-2 py-0.5 rounded-full"
                             style={{ background: '#E8F5EE', color: '#0A3D2E' }}>
                             {selectedCandidate.compositeScore}
