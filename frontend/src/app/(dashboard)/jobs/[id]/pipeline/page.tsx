@@ -218,8 +218,7 @@ ${job.locationCountry === 'AE' ? '#UAEJobs #DubaiJobs #AbuDhabiJobs' : '#SaudiJo
             })()}
           </div>
 
-          <div className="flex items-end gap-1">
-            {(() => {
+          {(() => {
               const stages = [
                 { key: 'applied', label: 'Applied', match: ['applied','evaluated','screening'], color: '#64748B', bg: '#F1F5F9' },
                 { key: 'l1', label: 'L1 CV Screened', match: ['shortlisted','interviewing','offered','hired'], color: '#C9A84C', bg: '#FEF3C7' },
@@ -227,32 +226,34 @@ ${job.locationCountry === 'AE' ? '#UAEJobs #DubaiJobs #AbuDhabiJobs' : '#SaudiJo
                 { key: 'l3', label: 'L3 Interviewed', match: ['offered','hired'], color: '#7C3AED', bg: '#EDE9FE' },
                 { key: 'final', label: 'Final Shortlist', match: ['hired'], color: '#166534', bg: '#DCFCE7' },
               ]
-              const max = Math.max(...stages.map(s => candidates.filter(c => s.match.includes(c.pipelineStage)).length), 1)
 
-              return stages.map((s, i) => {
-                const count = candidates.filter(c => s.match.includes(c.pipelineStage)).length
-                const height = count > 0 ? Math.max((count / max) * 80, 20) : 20
-                const prev = i > 0 ? candidates.filter(c => stages[i-1].match.includes(c.pipelineStage)).length : count
-                const dropRate = prev > 0 ? Math.round((count / prev) * 100) : 0
+              return (
+                <div className="grid grid-cols-5 gap-2">
+                  {stages.map((s, i) => {
+                    const count = candidates.filter(c => s.match.includes(c.pipelineStage)).length
+                    const prev = i > 0 ? candidates.filter(c => stages[i-1].match.includes(c.pipelineStage)).length : count
+                    const dropRate = prev > 0 ? Math.round((count / prev) * 100) : 0
 
-                return (
-                  <div key={s.key} className="flex-1 flex flex-col items-center">
-                    {i > 0 && (
-                      <div className="w-full text-center text-[10px] font-medium text-gray-400 mb-1">
-                        → {dropRate}%
+                    return (
+                      <div key={s.key} className="flex flex-col items-center">
+                        <div className="h-5 flex items-center justify-center">
+                          {i > 0 && (
+                            <span className="text-[10px] font-medium text-gray-400">
+                              → {dropRate}%
+                            </span>
+                          )}
+                        </div>
+                        <div className="w-full rounded-xl flex items-center justify-center py-4 border-2"
+                          style={{ background: s.bg, borderColor: count > 0 ? s.color + '40' : 'transparent' }}>
+                          <span className="text-3xl font-bold" style={{ color: s.color }}>{count}</span>
+                        </div>
+                        <p className="text-xs font-medium text-center mt-2" style={{ color: s.color }}>{s.label}</p>
                       </div>
-                    )}
-                    {i === 0 && <div className="h-4" />}
-                    <div className="w-full rounded-t-xl flex items-end justify-center px-2"
-                      style={{ height: `${height}px`, background: s.bg }}>
-                      <span className="text-xl font-bold mb-1" style={{ color: s.color }}>{count}</span>
-                    </div>
-                    <p className="text-xs font-medium text-center mt-2" style={{ color: s.color }}>{s.label}</p>
-                  </div>
-                )
-              })
+                    )
+                  })}
+                </div>
+              )
             })()}
-          </div>
         </div>
 
         {/* Kanban Board */}
