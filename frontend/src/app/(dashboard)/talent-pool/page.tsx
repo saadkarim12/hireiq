@@ -86,7 +86,7 @@ export default function TalentPoolPage() {
   useEffect(() => {
     if (selectedJobId) {
       api.get<any[]>(`/jobs/${selectedJobId}/talent-matches?minScore=0`)
-        .then(res => setMatchedCandidates(res.data?.data || []))
+        .then(res => setMatchedCandidates((res.data?.data as any)?.matches || []))
         .catch(() => setMatchedCandidates([]))
     } else {
       setMatchedCandidates([])
@@ -97,7 +97,7 @@ export default function TalentPoolPage() {
       setLiveScore(null)
       api.get<any[]>(`/jobs/${selectedJobId}/talent-matches?minScore=0`)
         .then(res => {
-          const match = (res.data?.data || []).find((m: any) => m.id === selectedCandidate.id || m.originalCandidateId === selectedCandidate.id)
+          const match = ((res.data?.data as any)?.matches || []).find((m: any) => m.id === selectedCandidate.id || m.originalCandidateId === selectedCandidate.id)
           if (match) setLiveScore({
             score: match.jobMatchScore || match.compositeScore,
             cvMatch: match.cvMatchScore,
