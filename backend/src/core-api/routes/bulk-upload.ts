@@ -211,16 +211,16 @@ bulkUploadRouter.post('/jobs/:jobId/invite-from-pool', async (req: AuthRequest, 
       if (!c) continue
       const newCandidate = await prisma.candidate.create({ data: {
         agencyId: req.user!.agencyId, jobId,
-        waNumberHash: c.waNumberHash + '_' + Date.now(),
+        waNumberHash: (c.waNumberHash.slice(0, 50) + '_' + Date.now().toString().slice(-8)).slice(0, 64),
         waNumberEncrypted: c.waNumberEncrypted,
         fullName: c.fullName, email: c.email,
         currentRole: c.currentRole, yearsExperience: c.yearsExperience,
-        cvStructured: c.cvStructured || undefined,
+        cvStructured: c.cvStructured ? JSON.parse(JSON.stringify(c.cvStructured).slice(0, 50000)) : undefined,
         cvType: c.cvType || 'full_cv',
         consentGiven: true, consentTimestamp: new Date(),
         sourceChannel: 'talent_pool_match',
         pipelineStage: 'applied', conversationState: 'initiated',
-        dataTags: JSON.parse(JSON.stringify({ ...(c.dataTags as any || {}), invitedFromPool: true, originalCandidateId: c.id })),
+        dataTags: JSON.parse(JSON.stringify({ ...(c.dataTags as any || {}), invitedFromPool: true, originalCandidateId: c.id, jobTitle: job.title }).slice(0, 30000)),
       }})
 
       // Trigger WhatsApp invitation via mock service
