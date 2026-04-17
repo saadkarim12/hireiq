@@ -1,4 +1,5 @@
 'use client'
+import toast from 'react-hot-toast'
 import { useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/api/client'
