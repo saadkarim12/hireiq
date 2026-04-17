@@ -139,8 +139,8 @@ bulkUploadRouter.get('/jobs/:jobId/talent-matches', async (req: AuthRequest, res
           { fullName: '<UNKNOWN>' },
           { fullName: 'UNKNOWN' },
           { OR: [
-            ...(existingEmails.length ? [{ email: { in: existingEmails } }] : [{ id: 'none' }]),
-            { waNumberHash: { in: existingHashes } },
+            ...(existingEmails.length ? [{ email: { in: existingEmails } }] : []),
+            ...(existingHashes.length ? [{ waNumberHash: { in: existingHashes } }] : []),
           ]},
         ],
       },
