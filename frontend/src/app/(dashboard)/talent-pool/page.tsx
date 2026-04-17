@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/api/client'
 import { useRouter } from 'next/navigation'
@@ -66,6 +66,26 @@ export default function TalentPoolPage() {
     }
   }
 
+
+
+  // Re-score candidate against selected job when drawer opens
+  const [liveScore, setLiveScore] = useState<any>(null)
+  useEffect(() => {
+    if (selectedCandidate && selectedJobId) {
+      setLiveScore(null)
+      api.get<any[]>(`/jobs/${selectedJobId}/talent-matches?minScore=0`)
+        .then(res => {
+          const match = (res.data?.data || []).find((m: any) => m.id === selectedCandidate.id || m.originalCandidateId === selectedCandidate.id)
+          if (match) setLiveScore({
+            score: match.jobMatchScore || match.compositeScore,
+            cvMatch: match.cvMatchScore,
+            skills: match.skillsMatched || [],
+            reason: match.matchReason || '',
+          })
+        })
+        .catch(() => {})
+    }
+  }, [selectedCandidate, selectedJobId])
 
   const handleInviteToScreening = async (candidate: any) => {
     if (!selectedJobId) { 
@@ -275,14 +295,48 @@ export default function TalentPoolPage() {
                     {selectedCandidate.compositeScore}
                   </span>
                   <div>
-                    <p className="text-xs font-semibold" style={{ color: '#374151' }}>HireIQ Score</p>
+                    <p className="text-xs font-semibold" style={{ color: '#374151' }}>Previous Stored Score</p>
                     <p className="text-xs text-gray-500">
-                      {selectedCandidate.compositeScore >= 75 ? 'Strong match' : selectedCandidate.compositeScore >= 55 ? 'Good match' : 'Partial match'}
+                      {(selectedCandidate.dataTags as any)?.jobTitle ? `From ${(selectedCandidate.dataTags as any).jobTitle}` : 'Historic score from last application'}
                     </p>
                   </div>
                 </div>
               )}
 
+
+              {/* Re-scored for selected job */}
+              {selectedJobId && (
+                <div className="mb-4 p-4 rounded-xl border-2" style={{ borderColor: '#C9A84C', background: '#FDF6E3' }}>
+                  <div className="flex items-center justify-between mb-2">
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-wide" style={{ color: '#92400E' }}>
+                        Match for: {jobs.find((j: any) => j.id === selectedJobId)?.title}
+                      </p>
+                      <p className="text-[10px] text-gray-500 mt-0.5">
+                        Fresh score against this job criteria (not stored)
+                      </p>
+                    </div>
+                    {liveScore ? (
+                      <span className="text-3xl font-bold"
+                        style={{ color: liveScore.score >= 75 ? '#166534' : liveScore.score >= 55 ? '#92400E' : '#991B1B' }}>
+                        {liveScore.score}
+                      </span>
+                    ) : (
+                      <div className="w-5 h-5 border-2 border-gray-300 border-t-amber-600 rounded-full animate-spin" />
+                    )}
+                  </div>
+                  {liveScore?.skills?.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mt-3">
+                      {liveScore.skills.slice(0, 8).map((s: any, i: number) => (
+                        <span key={i} className="text-xs px-2 py-0.5 rounded-md font-medium"
+                          style={{ background: s.found ? '#DCFCE7' : '#FEE2E2', color: s.found ? '#166534' : '#991B1B' }}>
+                          {s.found ? '✓' : '✗'} {s.skill || s}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
               {/* Details */}
               <div className="space-y-4">
                 <div>
@@ -318,6 +372,55 @@ export default function TalentPoolPage() {
                         <span key={i} className="text-xs px-2 py-0.5 rounded-full"
                           style={{ background: '#E8F5EE', color: '#0A3D2E' }}>
                           {s}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Work Experience */}
+                {((selectedCandidate.cvStructured as any)?.experience?.length > 0) && (
+                  <div>
+                    <p className="text-xs font-medium text-gray-400 uppercase mb-2">Work Experience</p>
+                    <div className="space-y-2">
+                      {((selectedCandidate.cvStructured as any)?.experience || []).slice(0, 4).map((exp: any, i: number) => (
+                        <div key={i} className="p-3 rounded-xl border border-gray-100">
+                          <p className="text-sm font-medium text-gray-800">{exp.title || exp.role || 'Role'}</p>
+                          <p className="text-xs text-gray-500 mt-0.5">
+                            {exp.company || 'Company'}
+                            {exp.duration || exp.period ? ` · ${exp.duration || exp.period}` : ''}
+                          </p>
+                          {exp.description && (
+                            <p className="text-xs text-gray-600 mt-1.5 leading-relaxed">{exp.description.slice(0, 180)}{exp.description.length > 180 ? '...' : ''}</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Education */}
+                {((selectedCandidate.cvStructured as any)?.education) && (
+                  <div>
+                    <p className="text-xs font-medium text-gray-400 uppercase mb-2">Education</p>
+                    <div className="p-3 rounded-xl border border-gray-100">
+                      <p className="text-sm text-gray-700">
+                        {typeof (selectedCandidate.cvStructured as any).education === 'string'
+                          ? (selectedCandidate.cvStructured as any).education
+                          : JSON.stringify((selectedCandidate.cvStructured as any).education).slice(0, 200)}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Certifications */}
+                {((selectedCandidate.cvStructured as any)?.certifications?.length > 0) && (
+                  <div>
+                    <p className="text-xs font-medium text-gray-400 uppercase mb-2">Certifications</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {((selectedCandidate.cvStructured as any)?.certifications || []).slice(0, 8).map((c: string, i: number) => (
+                        <span key={i} className="text-xs px-2 py-1 rounded-md font-medium" style={{ background: '#EFF6FF', color: '#1D4ED8' }}>
+                          {c}
                         </span>
                       ))}
                     </div>

@@ -209,7 +209,7 @@ bulkUploadRouter.post('/jobs/:jobId/invite-from-pool', async (req: AuthRequest, 
     for (const candidateId of candidateIds) {
       const c = await prisma.candidate.findFirst({ where: { id: candidateId, agencyId: req.user!.agencyId } })
       if (!c) continue
-      await prisma.candidate.create({ data: {
+      const newCandidate = await prisma.candidate.create({ data: {
         agencyId: req.user!.agencyId, jobId,
         waNumberHash: c.waNumberHash + '_' + Date.now(),
         waNumberEncrypted: c.waNumberEncrypted,
@@ -222,6 +222,32 @@ bulkUploadRouter.post('/jobs/:jobId/invite-from-pool', async (req: AuthRequest, 
         pipelineStage: 'applied', conversationState: 'initiated',
         dataTags: JSON.parse(JSON.stringify({ ...(c.dataTags as any || {}), invitedFromPool: true, originalCandidateId: c.id })),
       }})
+
+      // Trigger WhatsApp invitation via mock service
+      try {
+        const skills = (c.cvStructured as any)?.skills?.slice(0, 2).join(' and ') || 'your experience'
+        const personalisedMsg = `Hi ${c.fullName?.split(' ')[0] || 'there'}, your ${skills} matches our ${job.title} role at ${job.hiringCompany}. We'd love to reconnect — are you interested in exploring this opportunity? Reply YES for a quick 5-minute screening.`
+        
+        await fetch('http://localhost:3003/mock/simulate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            waNumber: '+971500000000',
+            message: personalisedMsg,
+            candidateId: newCandidate.id,
+            jobId,
+            source: 'talent_pool_invite',
+          }),
+        })
+        
+        await prisma.candidate.update({
+          where: { id: newCandidate.id },
+          data: { pipelineStage: 'screening' },
+        })
+      } catch (e) {
+        logger.warn('WhatsApp mock unreachable — invitation logged but not sent', { candidateId: newCandidate.id })
+      }
+
       invited++
     }
     res.json({ success: true, data: { invited, jobTitle: job.title } })
