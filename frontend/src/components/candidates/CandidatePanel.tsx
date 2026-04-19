@@ -34,6 +34,7 @@ type Tab = 'summary' | 'transcript' | 'cv'
 export function CandidatePanel({ candidateId, onClose, onStatusUpdate }: CandidatePanelProps) {
   const [activeTab, setActiveTab] = useState<Tab>('summary')
   const [showRejectModal, setShowRejectModal] = useState(false)
+  const [showWhatsAppConfirm, setShowWhatsAppConfirm] = useState(false)
   const [rejectionReason, setRejectionReason] = useState<RejectionReason>('other')
   const [recruiterNote, setRecruiterNote] = useState('')
 
@@ -55,6 +56,13 @@ export function CandidatePanel({ candidateId, onClose, onStatusUpdate }: Candida
 
   const handleAdvance = () => updateMutation.mutate({ pipelineStage: 'shortlisted' })
   const handleHold = () => updateMutation.mutate({ pipelineStage: 'held' })
+  // Confirming Invite to WhatsApp is the same backend action (→ shortlisted)
+  // but auto-triggers WhatsApp simulation server-side. Recruiter confirms first
+  // because each candidate = one paid Claude run.
+  const handleInviteToWhatsApp = () => {
+    setShowWhatsAppConfirm(false)
+    updateMutation.mutate({ pipelineStage: 'shortlisted' })
+  }
 
   // Normalised score access. API returns scores both flat on candidate and
   // nested under .scores — prefer nested (typed, API-guaranteed), fall back to flat.
@@ -64,6 +72,14 @@ export function CandidatePanel({ candidateId, onClose, onStatusUpdate }: Candida
     const flat = (candidate as any)?.[key]
     return flat !== undefined && flat !== null ? flat : null
   }
+
+  // Applied column covers three DB stages. Before WhatsApp screening has run,
+  // commitment + salary fit are not yet collected — drawer greys them out.
+  const stage = candidate?.pipelineStage || 'applied'
+  const isPreScreening = stage === 'applied' || stage === 'evaluated'
+  // In-progress marker: candidate is at L1 but simulation hasn't completed yet.
+  const convState = (candidate as any)?.conversationState
+  const isScreeningInProgress = stage === 'shortlisted' && typeof convState === 'string' && convState.startsWith('screening_q')
   const handleReject = () => updateMutation.mutate({
     pipelineStage: 'rejected',
     rejectionReason,
@@ -121,15 +137,40 @@ export function CandidatePanel({ candidateId, onClose, onStatusUpdate }: Candida
         {/* Scores Row */}
         {!isLoading && candidate && (
           <div className="px-6 py-4 bg-gray-50 border-b border-gray-200 flex-shrink-0">
-            <div className="flex items-center justify-around">
-              <ScoreBadge score={s('compositeScore')}  size="lg" showLabel label="Overall" />
-              <div className="w-px h-12 bg-gray-200" />
-              <ScoreBadge score={s('cvMatchScore')}    size="md" showLabel label="CV Match" />
-              <div className="w-px h-12 bg-gray-200" />
-              <ScoreBadge score={s('commitmentScore')} size="md" showLabel label="Commitment" />
-              <div className="w-px h-12 bg-gray-200" />
-              <ScoreBadge score={s('salaryFitScore')}  size="md" showLabel label="Salary Fit" />
-            </div>
+            {isPreScreening ? (
+              // Applied stage: CV Match only. Commitment + Salary Fit collected via WhatsApp later.
+              <div className="flex items-center justify-around">
+                <ScoreBadge score={s('cvMatchScore')} size="lg" showLabel label="CV Match" />
+                <div className="w-px h-12 bg-gray-200" />
+                <div className="flex flex-col items-center gap-1 opacity-40">
+                  <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center ring-2 ring-gray-200 text-gray-400 text-sm font-semibold">—</div>
+                  <span className="text-xs text-gray-400">Commitment</span>
+                  <span className="text-[10px] text-gray-400 italic">After WhatsApp</span>
+                </div>
+                <div className="w-px h-12 bg-gray-200" />
+                <div className="flex flex-col items-center gap-1 opacity-40">
+                  <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center ring-2 ring-gray-200 text-gray-400 text-sm font-semibold">—</div>
+                  <span className="text-xs text-gray-400">Salary Fit</span>
+                  <span className="text-[10px] text-gray-400 italic">After WhatsApp</span>
+                </div>
+              </div>
+            ) : isScreeningInProgress ? (
+              <div className="flex items-center justify-center gap-3 py-2">
+                <span className="inline-block animate-spin text-xl">🔄</span>
+                <span className="text-sm font-medium text-gray-700">WhatsApp screening in progress…</span>
+                <span className="text-xs text-gray-400">(usually ~20s)</span>
+              </div>
+            ) : (
+              <div className="flex items-center justify-around">
+                <ScoreBadge score={s('compositeScore')}  size="lg" showLabel label="Overall" />
+                <div className="w-px h-12 bg-gray-200" />
+                <ScoreBadge score={s('cvMatchScore')}    size="md" showLabel label="CV Match" />
+                <div className="w-px h-12 bg-gray-200" />
+                <ScoreBadge score={s('commitmentScore')} size="md" showLabel label="Commitment" />
+                <div className="w-px h-12 bg-gray-200" />
+                <ScoreBadge score={s('salaryFitScore')}  size="md" showLabel label="Salary Fit" />
+              </div>
+            )}
 
             {/* Authenticity flag */}
             {(candidate as any).authenticityFlag && (candidate as any).authenticityFlag !== 'none' && (
@@ -448,14 +489,25 @@ export function CandidatePanel({ candidateId, onClose, onStatusUpdate }: Candida
         {/* Action Buttons - Fixed Bottom */}
         {candidate && !isLoading && (
           <div className="border-t border-gray-200 px-6 py-4 bg-white flex items-center gap-3 flex-shrink-0">
-            <button
-              onClick={handleAdvance}
-              disabled={updateMutation.isPending || candidate.pipelineStage === 'hired'}
-              className="flex-1 btn-primary justify-center gap-2 text-sm"
-            >
-              <CheckCircleIcon className="w-4 h-4" />
-              Advance
-            </button>
+            {isPreScreening ? (
+              // Applied: primary action is to kick off WhatsApp screening (with confirmation).
+              <button
+                onClick={() => setShowWhatsAppConfirm(true)}
+                disabled={updateMutation.isPending}
+                className="flex-1 btn-primary justify-center gap-2 text-sm"
+              >
+                💬 Invite to WhatsApp Screening
+              </button>
+            ) : (
+              <button
+                onClick={handleAdvance}
+                disabled={updateMutation.isPending || candidate.pipelineStage === 'hired' || isScreeningInProgress}
+                className="flex-1 btn-primary justify-center gap-2 text-sm"
+              >
+                <CheckCircleIcon className="w-4 h-4" />
+                {isScreeningInProgress ? 'Screening in progress…' : 'Advance'}
+              </button>
+            )}
             <button
               onClick={handleHold}
               disabled={updateMutation.isPending}
@@ -470,6 +522,41 @@ export function CandidatePanel({ candidateId, onClose, onStatusUpdate }: Candida
             >
               <HandThumbDownIcon className="w-4 h-4" />
             </button>
+          </div>
+        )}
+
+        {/* Invite to WhatsApp confirmation modal */}
+        {showWhatsAppConfirm && candidate && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+            <div className="fixed inset-0 bg-black/50" onClick={() => setShowWhatsAppConfirm(false)} />
+            <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-md p-6 space-y-4">
+              <div className="flex items-center gap-3">
+                <span className="text-2xl">💬</span>
+                <h3 className="text-base font-bold text-brand-navy">Invite to WhatsApp Screening</h3>
+              </div>
+              <p className="text-sm text-gray-700">
+                This will trigger WhatsApp screening for <span className="font-semibold">{candidate.fullName}</span>.
+                Claude will generate 5 personalised questions and evaluate responses.
+              </p>
+              <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-800">
+                ⚠️ Each screening uses paid Claude API calls. Confirm you want to proceed.
+              </div>
+              <div className="flex gap-2 pt-2">
+                <button
+                  onClick={() => setShowWhatsAppConfirm(false)}
+                  className="flex-1 btn-secondary text-sm"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleInviteToWhatsApp}
+                  disabled={updateMutation.isPending}
+                  className="flex-1 btn-primary text-sm"
+                >
+                  {updateMutation.isPending ? 'Starting…' : 'Yes, start screening'}
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>

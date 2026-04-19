@@ -122,7 +122,7 @@ export default function TalentPoolPage() {
       })
       const data = res.data as any
       if (data.success) {
-        toast.success(`${candidate.fullName} invited — they will appear in the job pipeline`)
+        toast.success(`${candidate.fullName} added to pipeline — review in Applied column, then invite to WhatsApp`)
         setSelectedCandidate(null)
         // Refresh the matched candidates list to remove the just-invited one
         if (selectedJobId) {
@@ -497,8 +497,8 @@ export default function TalentPoolPage() {
                     className="w-full py-2.5 text-sm font-semibold text-white rounded-xl flex items-center justify-center gap-2 disabled:opacity-60"
                     style={{ background: '#0A3D2E' }}>
                     {inviting
-                      ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />Inviting...</>
-                      : '💬 Invite to WhatsApp Screening'}
+                      ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />Adding...</>
+                      : '📥 Add to Pipeline'}
                   </button>
                 ) : (
                   <div className="p-3 rounded-xl text-xs text-center" style={{ background: '#FEF3C7', color: '#92400E' }}>

@@ -94,12 +94,18 @@ export function CandidateCard({ candidate, onClick, isDragging }: CandidateCardP
         </div>
       )}
 
-      {/* AI recommendation */}
+      {/* AI recommendation OR screening-in-progress marker */}
       <div className="mb-2">
-        <AiRecommendationBadge
-          recommendation={candidate.aiRecommendation ?? null}
-          pipelineStage={candidate.pipelineStage}
-        />
+        {candidate.pipelineStage === 'shortlisted' && typeof (candidate as any).conversationState === 'string' && (candidate as any).conversationState.startsWith('screening_q') ? (
+          <span className="inline-flex items-center gap-1 rounded border border-blue-200 bg-blue-50 text-blue-700 text-xs font-medium px-1.5 py-0.5">
+            <span className="inline-block animate-spin">🔄</span> Screening…
+          </span>
+        ) : (
+          <AiRecommendationBadge
+            recommendation={candidate.aiRecommendation ?? null}
+            pipelineStage={candidate.pipelineStage}
+          />
+        )}
       </div>
 
       {/* Tags row */}

@@ -219,33 +219,21 @@ bulkUploadRouter.post('/jobs/:jobId/invite-from-pool', async (req: AuthRequest, 
         cvType: c.cvType || 'full_cv',
         consentGiven: true, consentTimestamp: new Date(),
         sourceChannel: 'talent_pool_match',
+        // Phase 6k: Pool "Add to Pipeline" lands in Applied with CV-only scoring.
+        // WhatsApp screening fires later when recruiter clicks "Invite to WhatsApp" in Applied drawer.
         pipelineStage: 'applied', conversationState: 'initiated',
         dataTags: JSON.parse(JSON.stringify({ ...(c.dataTags as any || {}), invitedFromPool: true, originalCandidateId: c.id, jobTitle: job.title }).slice(0, 30000)),
       }})
 
-      // Trigger WhatsApp invitation via mock service
+      // Fire CV-only scoring so the Applied drawer has a recommendation ready
       try {
-        const skills = (c.cvStructured as any)?.skills?.slice(0, 2).join(' and ') || 'your experience'
-        const personalisedMsg = `Hi ${c.fullName?.split(' ')[0] || 'there'}, your ${skills} matches our ${job.title} role at ${job.hiringCompany}. We'd love to reconnect — are you interested in exploring this opportunity? Reply YES for a quick 5-minute screening.`
-        
-        await fetch('http://localhost:3003/mock/simulate', {
+        await fetch(`http://localhost:${process.env.AI_ENGINE_PORT || 3002}/api/v1/ai/score-cv`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            waNumber: '+971500000000',
-            message: personalisedMsg,
-            candidateId: newCandidate.id,
-            jobId,
-            source: 'talent_pool_invite',
-          }),
-        })
-        
-        await prisma.candidate.update({
-          where: { id: newCandidate.id },
-          data: { pipelineStage: 'screening' },
+          body: JSON.stringify({ candidateId: newCandidate.id, jobId }),
         })
       } catch (e) {
-        logger.warn('WhatsApp mock unreachable — invitation logged but not sent', { candidateId: newCandidate.id })
+        logger.warn('CV-only scoring failed on pool invite — candidate landed in Applied without recommendation', { candidateId: newCandidate.id })
       }
 
       invited++

@@ -155,6 +155,20 @@ candidatesRouter.patch('/:id/status', async (req: AuthRequest, res) => {
       pipelineStage: updated.pipelineStage,
     })
 
+    // Phase 6k: L1 entry triggers WhatsApp screening automatically.
+    // Fire-and-forget: return immediately so the drag/click feels instant;
+    // the sim runs async (~15-30s Claude calls) and the frontend polls /refetches
+    // on the kanban to see composite scores appear when done.
+    const enteringL1 = pipelineStage === 'shortlisted' && prevStage !== 'shortlisted'
+    if (enteringL1) {
+      logger.info(`L1 entry triggered for ${updated.id} — firing WhatsApp simulation async`)
+      fetch(`http://localhost:${process.env.WHATSAPP_PORT || 3003}/mock/simulate-screening`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ candidateId: updated.id }),
+      }).catch(e => logger.warn('L1-entry simulation call failed', { err: e.message }))
+    }
+
     // Audit log
     await prisma.auditLog.create({
       data: {

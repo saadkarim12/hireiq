@@ -89,18 +89,37 @@ cd ~/hireiq/frontend && npm run dev
 6. **WhatsApp Mock** — at http://localhost:3003/mock
 7. **User Flow** — Two parallel flows (CV Inbox + Talent Pool) documented in `docs/HireIQ_User_Flow_v1.1.docx`
 
-### Scoring Model (CRITICAL — understand this)
-- **CV Inbox stage**: "CV Screening Score" = Skills (60%) + Experience (40%). NO salary fit (CVs rarely state salary).
-- **After WhatsApp**: Full Composite = CV Match (40%) + Commitment (40%) + Salary Fit (20%)
-- Talent Pool shows fresh re-scored value for selected job, not stored historic score
+### Scoring Model (CRITICAL — Phase 6k reworked)
+Two-stage scoring aligned to kanban stages:
+- **Applied (CV-only)**: `cvMatchScore` = Skills (60%) + Experience (40%). NO commitment, salary, or composite yet. Endpoint: `POST /api/v1/ai/score-cv`.
+- **L1 (post-WhatsApp, after simulation completes)**: Full composite = CV Match (40%) + Commitment (40%) + Salary Fit (20%). Endpoint: `POST /api/v1/ai/score`.
+- Talent Pool shows fresh CV re-score for selected job.
 
-### AI Recommendation Logic (L1 CV Screened — fully wired)
+### AI Recommendation Logic (per transition)
+**Applied → L1 CV Screened** — `recommendForL1` (CV-only signals):
 - `!hardFilterPass` → **reject** ("Missing must-have: <skill>")
-- `composite < 55` → **reject** ("CV doesn't match role requirements")
-- `composite 55-74` → **hold** ("Borderline match — review carefully")
-- `composite >= 75 AND commitment < 70` → **hold** ("High CV match but vague answers — worth a call")
-- `composite >= 75 AND commitment >= 70` → **advance** ("Strong CV match + clear answers")
-- L2-L5 transitions: stub (`null`) — frontend renders gray `⏳ Pending <next action>` badge. Phase 7 will fill these in as interview/feedback/offer data flows.
+- `cvMatchScore < 55` → **reject** ("CV match weak — doesn't meet role requirements")
+- `cvMatchScore 55-74` → **hold** ("Borderline CV match — review carefully")
+- `cvMatchScore >= 75` → **advance** ("Strong CV match — ready for WhatsApp screening")
+
+**L1 → L2 WA Screened** — `recommendForL2` (full composite + commitment):
+- `!hardFilterPass` → **reject**
+- `compositeScore < 55` → **reject**
+- `compositeScore 55-74` → **hold**
+- `compositeScore >= 75 AND commitmentScore < 70` → **hold** ("High composite but vague answers")
+- `compositeScore >= 75 AND commitmentScore >= 70` → **advance**
+
+**L2 → L3 Interviewed** — `recommendForL3` (uses `interviewTechnicalScore`, 0-10):
+- `>= 7` advance · `5-6` hold · `< 5` reject · null → pending
+
+**L3 → Final Shortlist** — `recommendForFinal` (uses `interviewCultureScore`, 0-10): same thresholds as L3.
+
+**Final → Hired** — `recommendForHired`: stub (Phase 7 when offer model lands).
+
+### Stage Transitions — Where Actions Fire
+- **Pool "📥 Add to Pipeline"** → creates candidate at `applied`, triggers `/score-cv` async.
+- **Applied drawer "💬 Invite to WhatsApp Screening"** → confirmation modal → PATCH `/candidates/:id/status` → `shortlisted`. When PATCH sees `shortlisted` as new stage AND previous wasn't, it fire-and-forgets `simulate-screening`. Frontend polls at 3s while `conversationState` is `screening_q*`, showing `🔄 Screening…` badge. Full composite + L2 recommendation land on completion (~15-30s).
+- **L1+ drawer "Advance"** → manual PATCH to next stage. No auto-sim — L2+ don't have any async signals yet.
 
 ### Key Design Decisions
 - **AI proposes, recruiter decides — at EVERY stage transition.** The AI never auto-advances candidates between pipeline stages. Each transition has its own recommendation logic (`advance` / `hold` / `reject`) with reasoning stored on the candidate. When signal data is missing (e.g., interview feedback not yet in), show `⏳ Pending <next action>` instead of silently advancing. Every forward move requires explicit recruiter action (drag on kanban or click in drawer).
@@ -124,8 +143,10 @@ Plus 10 Cloud Architect pipeline candidates (Omar Farouk, Ahmed Al-Rashidi, Sara
 
 ## Today's Priority — Phase 6j
 
-### Priority 1: WhatsApp Screening Simulation ✅ COMPLETE (v1.7.0)
-One-click simulate on the mock page (`http://localhost:3003/mock`) fires all 5 baseline answers, evaluates via Claude, triggers `/api/v1/ai/score`, and sets `aiRecommendation` (`advance`/`hold`/`reject`) + reasoning. **Never auto-advances stage** — recruiter must drag the card. Tone distribution: 60% strong → advance / 25% mixed → hold / 15% vague → reject. Verified E2E with Omar (advance), Tariq (advance), Nadia (advance on patched Cloud Architect job). Backward drags logged to audit trail.
+### Priority 1: WhatsApp Screening Simulation ✅ COMPLETE (v1.7.0, re-architected in v1.8.0 / Phase 6k)
+
+### Phase 6k ✅ COMPLETE (v1.8.0) — Re-architected simulation trigger
+Per stage semantics corrected. Applied = CV-only. L1 = WhatsApp screening (sim fires automatically on entry, async). L2/L3/Final = interview feedback (schema ready, Phase 7 UI). See "Stage Transitions" above. Two interview score fields landed: `interviewTechnicalScore`, `interviewCultureScore` (plus matching notes).
 
 ### Priority 2: CandidatePanel Polish  ← NEXT
 **Problem**: Pipeline drawer (when clicking kanban card) shows inconsistent score view vs Talent Pool drawer.

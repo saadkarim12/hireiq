@@ -3,10 +3,11 @@ import { callClaudeWithTool } from '../claude-client'
 import { prisma } from '../../shared/db'
 import { logger } from '../../shared/logger'
 import Anthropic from '@anthropic-ai/sdk'
-import { recommendForL1 } from '../../shared/recommendations'
+import { recommendForL1, recommendForL2 } from '../../shared/recommendations'
 
 export const scoreCandidateRoute = Router()
 
+// ── Full scoring tool (post-WhatsApp: cv + commitment + salary + composite) ─
 const SCORE_TOOLS_V2: Anthropic.Tool[] = [
   {
     name: 'score_candidate',
@@ -64,6 +65,132 @@ const SCORE_TOOLS_V2: Anthropic.Tool[] = [
   },
 ]
 
+// ── CV-only scoring tool (Applied stage: cv match + hard filter only) ────────
+const CV_ONLY_TOOLS: Anthropic.Tool[] = [
+  {
+    name: 'score_cv_only',
+    description: 'Score CV against job requirements. Skills + experience only — commitment and salary are collected later via WhatsApp.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        cvMatchScore:         { type: 'number', description: '0-100: Skills (60%) + Experience (40%)' },
+        hardFilterPass:       { type: 'boolean' },
+        hardFilterFailReason: { type: 'string' },
+        authenticityFlag:     { type: 'string', enum: ['none','low','medium','high'] },
+        parseConfidence:      { type: 'number', description: '0-100 how cleanly CV was parsed' },
+        evidence: {
+          type: 'object',
+          properties: {
+            experience: {
+              type: 'object',
+              properties: {
+                found:    { type: 'boolean' },
+                years:    { type: 'number' },
+                evidence: { type: 'string' },
+              }
+            },
+            mustHaveSkills: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  skill:    { type: 'string' },
+                  found:    { type: 'boolean' },
+                  evidence: { type: 'string' },
+                }
+              }
+            },
+            visaEvidence:      { type: 'string' },
+            aiAlterationFlags: { type: 'array', items: { type: 'string' } },
+          }
+        },
+        dataTags: {
+          type: 'object',
+          properties: {
+            seniorityLevel:     { type: 'string' },
+            roleCategory:       { type: 'string' },
+            languageCapability: { type: 'string' },
+          }
+        },
+      },
+      required: ['cvMatchScore','hardFilterPass','evidence','dataTags','parseConfidence'],
+    },
+  },
+]
+
+// ── CV-only endpoint (Applied stage) ─────────────────────────────────────────
+scoreCandidateRoute.post('/score-cv', async (req, res) => {
+  const { candidateId, jobId } = req.body
+  try {
+    const [candidate, job] = await Promise.all([
+      prisma.candidate.findUnique({ where: { id: candidateId } }),
+      prisma.job.findUnique({ where: { id: jobId } }),
+    ])
+    if (!candidate || !job) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Not found' } })
+
+    const criteria = job.extractedCriteria as any
+
+    const scores = await callClaudeWithTool<any>(
+      `You are a CV-only screening engine for UAE and KSA recruitment.
+Score ONLY on Skills (60%) + Experience (40%) — do NOT score commitment or salary at this stage; that happens later via WhatsApp.
+Extract EXACT evidence from CV text for each must-have skill.
+For mustHaveSkills: quote the exact CV phrase where found, or set found=false with empty evidence.
+parseConfidence: 0=garbled/table/image PDF, 100=clean plain text.
+Flag AI-generated content: perfect JD keyword match, skills with no timeline support.`,
+      `Score this candidate CV (CV-only, pre-screening):
+JOB: ${job.title} at ${job.hiringCompany} (${job.locationCountry})
+Min experience: ${job.minExperienceYears} years
+Required skills: ${job.requiredSkills.join(', ')}
+Must-have: ${criteria?.mustHave?.join(', ')||'Not specified'}
+
+CANDIDATE:
+Role: ${candidate.currentRole||'Unknown'}
+Experience: ${candidate.yearsExperience||'Unknown'} years
+Visa: ${candidate.visaStatus||'Unknown'}
+CV skills: ${((candidate.cvStructured as any)?.skills||[]).join(', ')}
+CV data: ${JSON.stringify(candidate.cvStructured||{}).slice(0,800)}`,
+      CV_ONLY_TOOLS,
+      'score_cv_only'
+    )
+
+    const missingSkills = (scores.evidence?.mustHaveSkills || [])
+      .filter((s: any) => s && s.found === false)
+      .map((s: any) => s.skill)
+    const rec = recommendForL1({
+      cvMatchScore:         scores.cvMatchScore,
+      hardFilterPass:       scores.hardFilterPass,
+      hardFilterFailReason: scores.hardFilterFailReason,
+      missingSkills,
+    })
+
+    await prisma.candidate.update({
+      where: { id: candidateId },
+      data: {
+        cvMatchScore:           scores.cvMatchScore,
+        // Deliberately NOT writing commitment/salary/composite — those come later
+        hardFilterPass:         scores.hardFilterPass,
+        hardFilterFailReason:   scores.hardFilterFailReason ? String(scores.hardFilterFailReason).slice(0, 200) : null,
+        authenticityFlag:       scores.authenticityFlag||'none',
+        dataTags: JSON.parse(JSON.stringify({
+          ...(scores.dataTags||{}),
+          evidence:        scores.evidence||{},
+          parseConfidence: scores.parseConfidence||75,
+        })),
+        aiRecommendation:       rec?.recommendation || null,
+        aiRecommendationReason: rec?.reason ? rec.reason.slice(0, 500) : null,
+        aiRecommendationStage:  rec?.stage || null,
+      },
+    })
+
+    logger.info(`Scored CV-only ${candidateId}: cvMatch=${scores.cvMatchScore} → rec=${rec?.recommendation || 'none'}`)
+    res.json({ success: true, data: { ...scores, aiRecommendation: rec } })
+  } catch (err: any) {
+    logger.error('Score-CV error', { err: err.message })
+    res.status(500).json({ success: false, error: { code: 'AI_ERROR', message: err.message } })
+  }
+})
+
+// ── Full scoring endpoint (post-WhatsApp, L1 stage) ─────────────────────────
 scoreCandidateRoute.post('/score', async (req, res) => {
   const { candidateId, jobId } = req.body
   try {
@@ -108,11 +235,11 @@ ${screeningAnswers||'None yet'}`,
 
     const returningInfo = await checkReturningCandidate(candidateId, jobId, candidate.agencyId)
 
-    // AI proposes, recruiter decides — compute recommendation but never change stage here.
+    // AI proposes, recruiter decides — this is the L1 → L2 transition (post-screening).
     const missingSkills = (scores.evidence?.mustHaveSkills || [])
       .filter((s: any) => s && s.found === false)
       .map((s: any) => s.skill)
-    const rec = recommendForL1({
+    const rec = recommendForL2({
       compositeScore:       scores.compositeScore,
       commitmentScore:      scores.commitmentScore,
       hardFilterPass:       scores.hardFilterPass,

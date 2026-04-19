@@ -233,6 +233,10 @@ model Candidate {
   conversationStateUpdatedAt  DateTime          @default(now()) @map("conversation_state_updated_at")
   shortlistedAt               DateTime?         @map("shortlisted_at")
   hiredAt                     DateTime?         @map("hired_at")
+  interviewTechnicalScore     Int?              @map("interview_technical_score") @db.SmallInt
+  interviewCultureScore       Int?              @map("interview_culture_score") @db.SmallInt
+  interviewTechnicalNotes     String?           @map("interview_technical_notes")
+  interviewCultureNotes       String?           @map("interview_culture_notes")
   deletionScheduledAt         DateTime?         @map("deletion_scheduled_at")
   sourceChannel               String?           @map("source_channel") @db.VarChar(50)
   createdAt                   DateTime          @default(now()) @map("created_at")

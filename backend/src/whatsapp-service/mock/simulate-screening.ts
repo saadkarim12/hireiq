@@ -79,6 +79,13 @@ simulateScreeningRouter.post('/simulate-screening', async (req, res) => {
 
   const tone: Tone = pickTone()
 
+  // Mark conversation as in-progress so the frontend kanban can show
+  // "🔄 Screening in progress" while the ~15-30s async run completes.
+  await prisma.candidate.update({
+    where: { id: candidateId },
+    data: { conversationState: 'screening_q1' },
+  })
+
   const updates: { salaryExpectation?: number; noticePeriodDays?: number } = {}
 
   for (let i = 0; i < questions.length; i++) {

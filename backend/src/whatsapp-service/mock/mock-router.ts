@@ -78,12 +78,12 @@ mockRouter.get('/', async (_req, res) => {
 
   <div class="setup" id="screeningQueue">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-      <h2 style="margin:0">2. Invited candidates awaiting screening:</h2>
+      <h2 style="margin:0">2. Invited candidates awaiting screening <span style="font-size:10px;color:#888;font-weight:500;text-transform:uppercase;letter-spacing:0.5px">(admin)</span></h2>
       <button class="batch-btn" id="batchBtn" onclick="simulateAll()" style="display:none">
         Simulate all (<span id="batchCount">0</span>)
       </button>
     </div>
-    <p style="color:#888;font-size:12px;margin-bottom:10px">Recruiter invited these candidates — click to simulate their 5 baseline answers.</p>
+    <p style="color:#888;font-size:12px;margin-bottom:10px"><strong>Admin tool for demos / debugging.</strong> In the real flow, screening fires automatically when recruiter drags a candidate into L1. Use this to pre-screen before a demo or re-run a failed sim.</p>
     <div id="screeningList" style="display:flex;flex-direction:column;gap:6px">
       <div style="color:#888;font-size:13px">Loading…</div>
     </div>

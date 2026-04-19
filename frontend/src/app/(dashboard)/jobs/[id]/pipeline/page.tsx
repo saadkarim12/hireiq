@@ -44,7 +44,14 @@ export default function PipelinePage({ params }: PageProps) {
   const { data: candidatesData } = useQuery({
     queryKey: ['job-candidates', id],
     queryFn: () => jobsApi.getCandidates(id, { limit: 200 }),
-    refetchInterval: 30_000,
+    // Poll faster while any candidate is in mid-screening (L1 sim usually ~15-30s);
+    // back off to 30s idle to keep network chatter sane.
+    refetchInterval: (q) => {
+      const data: any = q.state.data
+      const list = data?.data || []
+      const inFlight = list.some((c: any) => c.pipelineStage === 'shortlisted' && typeof c.conversationState === 'string' && c.conversationState.startsWith('screening_q'))
+      return inFlight ? 3_000 : 30_000
+    },
   })
 
   const candidates: CandidateSummary[] = candidatesData?.data || []
