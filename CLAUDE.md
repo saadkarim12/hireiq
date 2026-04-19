@@ -117,9 +117,13 @@ Two-stage scoring aligned to kanban stages:
 **Final → Hired** — `recommendForHired`: stub (Phase 7 when offer model lands).
 
 ### Stage Transitions — Where Actions Fire
+One primary button per drawer, label follows the next stage: **"✅ Approve to L1" / L2 / L3 / Final**.
+
 - **Pool "📥 Add to Pipeline"** → creates candidate at `applied`, triggers `/score-cv` async.
-- **Applied drawer "💬 Invite to WhatsApp Screening"** → confirmation modal → PATCH `/candidates/:id/status` → `shortlisted`. When PATCH sees `shortlisted` as new stage AND previous wasn't, it fire-and-forgets `simulate-screening`. Frontend polls at 3s while `conversationState` is `screening_q*`, showing `🔄 Screening…` badge. Full composite + L2 recommendation land on completion (~15-30s).
-- **L1+ drawer "Advance"** → manual PATCH to next stage. No auto-sim — L2+ don't have any async signals yet.
+- **Applied drawer "✅ Approve to L1"** → confirmation modal (paid-Claude warning) → PATCH `/candidates/:id/status` → `shortlisted`. When PATCH sees `shortlisted` as new stage AND previous wasn't, it fire-and-forgets `simulate-screening`. Frontend polls at 3s while `conversationState` is `screening_q*`, showing `🔄 Screening…` badge. Full composite + L2 recommendation land on completion (~15-30s).
+- **L1 drawer "✅ Approve to L2"** · **L2 "Approve to L3"** · **L3 "Approve to Final"** → single click advances. No modal (no Claude spend).
+- **Final Shortlist → Hired** → "Approve to Final" on `offered` drawer maps to `hired`. No further actions after that.
+- Hold / Reject are secondary buttons, same on every stage.
 
 ### Key Design Decisions
 - **AI proposes, recruiter decides — at EVERY stage transition.** The AI never auto-advances candidates between pipeline stages. Each transition has its own recommendation logic (`advance` / `hold` / `reject`) with reasoning stored on the candidate. When signal data is missing (e.g., interview feedback not yet in), show `⏳ Pending <next action>` instead of silently advancing. Every forward move requires explicit recruiter action (drag on kanban or click in drawer).

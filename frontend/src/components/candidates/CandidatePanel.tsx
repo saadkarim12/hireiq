@@ -54,14 +54,25 @@ export function CandidatePanel({ candidateId, onClose, onStatusUpdate }: Candida
     onError: () => toast.error('Failed to update status'),
   })
 
-  const handleAdvance = () => updateMutation.mutate({ pipelineStage: 'shortlisted' })
   const handleHold = () => updateMutation.mutate({ pipelineStage: 'held' })
-  // Confirming Invite to WhatsApp is the same backend action (→ shortlisted)
-  // but auto-triggers WhatsApp simulation server-side. Recruiter confirms first
-  // because each candidate = one paid Claude run.
-  const handleInviteToWhatsApp = () => {
+
+  // Stage → next stage + next-level label. One primary "Approve to Lx" button per stage.
+  // PATCH /status auto-fires WhatsApp sim when target is 'shortlisted' (L1), so
+  // Applied→L1 is the only transition with a paid-API confirmation modal.
+  const NEXT_STAGE_FROM: Record<string, { stage: PipelineStage; label: string }> = {
+    applied:      { stage: 'shortlisted',  label: 'L1' },
+    screening:    { stage: 'shortlisted',  label: 'L1' },
+    evaluated:    { stage: 'shortlisted',  label: 'L1' },
+    shortlisted:  { stage: 'interviewing', label: 'L2' },
+    interviewing: { stage: 'offered',      label: 'L3' },
+    offered:      { stage: 'hired',        label: 'Final' },
+  }
+  const nextTransition = candidate ? NEXT_STAGE_FROM[candidate.pipelineStage] : undefined
+
+  const handleApprove = () => {
+    if (!nextTransition) return
     setShowWhatsAppConfirm(false)
-    updateMutation.mutate({ pipelineStage: 'shortlisted' })
+    updateMutation.mutate({ pipelineStage: nextTransition.stage })
   }
 
   // Normalised score access. API returns scores both flat on candidate and
@@ -489,24 +500,23 @@ export function CandidatePanel({ candidateId, onClose, onStatusUpdate }: Candida
         {/* Action Buttons - Fixed Bottom */}
         {candidate && !isLoading && (
           <div className="border-t border-gray-200 px-6 py-4 bg-white flex items-center gap-3 flex-shrink-0">
-            {isPreScreening ? (
-              // Applied: primary action is to kick off WhatsApp screening (with confirmation).
+            {nextTransition ? (
               <button
-                onClick={() => setShowWhatsAppConfirm(true)}
-                disabled={updateMutation.isPending}
-                className="flex-1 btn-primary justify-center gap-2 text-sm"
-              >
-                💬 Invite to WhatsApp Screening
-              </button>
-            ) : (
-              <button
-                onClick={handleAdvance}
-                disabled={updateMutation.isPending || candidate.pipelineStage === 'hired' || isScreeningInProgress}
+                onClick={() => {
+                  // Applied → L1 is the only paid transition (WhatsApp fires on entry).
+                  // Warn the recruiter before spending a Claude run.
+                  if (isPreScreening) setShowWhatsAppConfirm(true)
+                  else handleApprove()
+                }}
+                disabled={updateMutation.isPending || isScreeningInProgress}
                 className="flex-1 btn-primary justify-center gap-2 text-sm"
               >
                 <CheckCircleIcon className="w-4 h-4" />
-                {isScreeningInProgress ? 'Screening in progress…' : 'Advance'}
+                {isScreeningInProgress ? 'Screening in progress…' : `Approve to ${nextTransition.label}`}
               </button>
+            ) : (
+              // Terminal stage (hired) — no advance action
+              <div className="flex-1 text-center text-xs text-gray-400 py-2">No further stages — candidate is hired</div>
             )}
             <button
               onClick={handleHold}
@@ -525,21 +535,21 @@ export function CandidatePanel({ candidateId, onClose, onStatusUpdate }: Candida
           </div>
         )}
 
-        {/* Invite to WhatsApp confirmation modal */}
+        {/* Approve to L1 confirmation modal — only shown for the Applied→L1 transition
+            because that's the one that spends a paid Claude screening run. */}
         {showWhatsAppConfirm && candidate && (
           <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
             <div className="fixed inset-0 bg-black/50" onClick={() => setShowWhatsAppConfirm(false)} />
             <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-md p-6 space-y-4">
               <div className="flex items-center gap-3">
-                <span className="text-2xl">💬</span>
-                <h3 className="text-base font-bold text-brand-navy">Invite to WhatsApp Screening</h3>
+                <CheckCircleIcon className="w-6 h-6 text-brand-navy" />
+                <h3 className="text-base font-bold text-brand-navy">Approve to L1?</h3>
               </div>
               <p className="text-sm text-gray-700">
-                This will trigger WhatsApp screening for <span className="font-semibold">{candidate.fullName}</span>.
-                Claude will generate 5 personalised questions and evaluate responses.
+                Approve <span className="font-semibold">{candidate.fullName}</span> to Level 1? This will trigger WhatsApp screening (AI will generate 5 personalised questions and evaluate responses).
               </p>
               <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-800">
-                ⚠️ Each screening uses paid Claude API calls. Confirm you want to proceed.
+                ⚠️ Each screening uses paid Claude API calls.
               </div>
               <div className="flex gap-2 pt-2">
                 <button
@@ -549,11 +559,11 @@ export function CandidatePanel({ candidateId, onClose, onStatusUpdate }: Candida
                   Cancel
                 </button>
                 <button
-                  onClick={handleInviteToWhatsApp}
+                  onClick={handleApprove}
                   disabled={updateMutation.isPending}
                   className="flex-1 btn-primary text-sm"
                 >
-                  {updateMutation.isPending ? 'Starting…' : 'Yes, start screening'}
+                  {updateMutation.isPending ? 'Approving…' : 'Yes, approve to L1'}
                 </button>
               </div>
             </div>
