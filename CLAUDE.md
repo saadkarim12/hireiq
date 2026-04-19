@@ -149,6 +149,7 @@ One-click simulate on the mock page (`http://localhost:3003/mock`) fires all 5 b
 ## Known Issues (defer to Phase 7)
 - **JD must-haves generator is too aggressive**: For seed jobs (Cloud Architect, Enterprise Architect) Claude extracted 9-10 must-have skills, causing every synthetic candidate to fail `hardFilterPass`. Patched two seed jobs manually on 2026-04-19 to match their `required_skills` column (Azure + DevOps for Cloud Architect, TOGAF + Azure + EA + Security for Enterprise Architect). Real fix: tune `process-jd.ts` prompt to cap must-haves at 3-5 items and align with `required_skills`.
 - **Seed job salary bands**: Cloud Architect was seeded at SAR 10-15k (unrealistic). Patched to AED 20-35k. JD generator should set band from market data, not freely invent.
+- **`evaluated` stage maps to Applied column in kanban**: Current mapping hides that scoring completed but may have produced null or weak results. Consider separating `evaluated` into its own visual state (e.g. a thin divider in the Applied column for scored-but-not-yet-advanced candidates) or reviewing stage mapping entirely in Phase 7. Related UX fix on 2026-04-19: dropped `evaluated` from the "Pending screening" badge label so scoring-complete candidates without a recommendation render no badge (honest) instead of falsely appearing unscored.
 
 ## Workflow Principles
 - **Saad works one step at a time** — confirm visible progress before next step

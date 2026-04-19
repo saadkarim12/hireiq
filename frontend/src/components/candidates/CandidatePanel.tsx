@@ -55,6 +55,15 @@ export function CandidatePanel({ candidateId, onClose, onStatusUpdate }: Candida
 
   const handleAdvance = () => updateMutation.mutate({ pipelineStage: 'shortlisted' })
   const handleHold = () => updateMutation.mutate({ pipelineStage: 'held' })
+
+  // Normalised score access. API returns scores both flat on candidate and
+  // nested under .scores — prefer nested (typed, API-guaranteed), fall back to flat.
+  const s = (key: 'compositeScore' | 'cvMatchScore' | 'commitmentScore' | 'salaryFitScore'): number | null => {
+    const nested = candidate?.scores?.[key]
+    if (nested !== undefined && nested !== null) return nested
+    const flat = (candidate as any)?.[key]
+    return flat !== undefined && flat !== null ? flat : null
+  }
   const handleReject = () => updateMutation.mutate({
     pipelineStage: 'rejected',
     rejectionReason,
@@ -113,13 +122,13 @@ export function CandidatePanel({ candidateId, onClose, onStatusUpdate }: Candida
         {!isLoading && candidate && (
           <div className="px-6 py-4 bg-gray-50 border-b border-gray-200 flex-shrink-0">
             <div className="flex items-center justify-around">
-              <ScoreBadge score={(candidate as any).compositeScore ?? candidate.scores?.compositeScore ?? null} size="lg" showLabel label="Overall" />
+              <ScoreBadge score={s('compositeScore')}  size="lg" showLabel label="Overall" />
               <div className="w-px h-12 bg-gray-200" />
-              <ScoreBadge score={(candidate as any).cvMatchScore ?? candidate.scores?.cvMatchScore ?? null} size="md" showLabel label="CV Match" />
+              <ScoreBadge score={s('cvMatchScore')}    size="md" showLabel label="CV Match" />
               <div className="w-px h-12 bg-gray-200" />
-              <ScoreBadge score={(candidate as any).commitmentScore ?? candidate.scores?.commitmentScore ?? null} size="md" showLabel label="Commitment" />
+              <ScoreBadge score={s('commitmentScore')} size="md" showLabel label="Commitment" />
               <div className="w-px h-12 bg-gray-200" />
-              <ScoreBadge score={(candidate as any).salaryFitScore ?? candidate.scores?.salaryFitScore ?? null} size="md" showLabel label="Salary Fit" />
+              <ScoreBadge score={s('salaryFitScore')}  size="md" showLabel label="Salary Fit" />
             </div>
 
             {/* Authenticity flag */}
@@ -185,13 +194,13 @@ export function CandidatePanel({ candidateId, onClose, onStatusUpdate }: Candida
               {activeTab === 'summary' && (
                 <div className="p-6 space-y-5">
                   {/* CV Screening Score */}
-                  {((candidate as any).compositeScore || (candidate as any).cvMatchScore) && (
+                  {(s('compositeScore') || s('cvMatchScore')) && (
                     <div className="rounded-xl p-4 mb-2"
-                      style={{ background: (candidate as any).compositeScore >= 75 ? '#DCFCE7' : (candidate as any).compositeScore >= 55 ? '#FEF3C7' : '#FEE2E2' }}>
+                      style={{ background: (s('compositeScore') ?? 0) >= 75 ? '#DCFCE7' : (s('compositeScore') ?? 0) >= 55 ? '#FEF3C7' : '#FEE2E2' }}>
                       <div className="flex items-center gap-3 mb-3">
                         <span className="text-2xl font-bold"
-                          style={{ color: (candidate as any).compositeScore >= 75 ? '#166534' : (candidate as any).compositeScore >= 55 ? '#92400E' : '#991B1B' }}>
-                          {(candidate as any).compositeScore || (candidate as any).cvMatchScore}
+                          style={{ color: (s('compositeScore') ?? 0) >= 75 ? '#166534' : (s('compositeScore') ?? 0) >= 55 ? '#92400E' : '#991B1B' }}>
+                          {s('compositeScore') ?? s('cvMatchScore')}
                         </span>
                         <div>
                           <p className="text-sm font-semibold text-gray-800">CV Screening Score</p>
@@ -200,9 +209,9 @@ export function CandidatePanel({ candidateId, onClose, onStatusUpdate }: Candida
                       </div>
                       <div className="space-y-2">
                         {[
-                          { label: 'CV Match', value: (candidate as any).cvMatchScore, weight: '40%' },
-                          { label: 'Commitment', value: (candidate as any).commitmentScore, weight: '40%', pending: true },
-                          { label: 'Salary Fit', value: (candidate as any).salaryFitScore, weight: '20%' },
+                          { label: 'CV Match',   value: s('cvMatchScore'),    weight: '40%' },
+                          { label: 'Commitment', value: s('commitmentScore'), weight: '40%', pending: true },
+                          { label: 'Salary Fit', value: s('salaryFitScore'),  weight: '20%' },
                         ].map(({ label, value, weight, pending }) => (
                           <div key={label}>
                             <div className="flex justify-between text-xs mb-1">

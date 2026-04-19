@@ -5,10 +5,13 @@ import type { AiRecommendation, PipelineStage } from '@/types'
 // Maps current pipelineStage → the "pending X" label shown when no
 // recommendation exists yet for the next transition. Keeps UI honest about
 // what signal the AI is waiting on.
+// Only stages that are *waiting on signal data* show a pending label.
+// 'evaluated' is intentionally omitted — scoring already ran for those
+// candidates, so a null aiRecommendation there reflects missing score data
+// (a failed scoring run, not a pending one) and should render no badge.
 const PENDING_LABEL: Partial<Record<PipelineStage | string, string>> = {
   applied:      'Pending screening',
   screening:    'Pending screening',
-  evaluated:    'Pending screening',
   shortlisted:  'Pending interview invite',
   interviewing: 'Pending interview completion',
   offered:      'Pending feedback',
