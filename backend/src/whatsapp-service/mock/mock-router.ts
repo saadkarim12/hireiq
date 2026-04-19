@@ -43,6 +43,13 @@ mockRouter.get('/', async (_req, res) => {
     .phone-input { display: flex; gap: 8px; margin-bottom: 12px; }
     .phone-input input { flex: 1; border: 1px solid #ddd; border-radius: 6px; padding: 7px 10px; font-size: 13px; }
     .badge { background: #C9A84C; color: #0A3D2E; font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 99px; }
+    @keyframes spin { to { transform: rotate(360deg) } }
+    .sim-row { display: flex; justify-content: space-between; align-items: center; background: #f7f7f5; padding: 8px 12px; border-radius: 6px; }
+    .sim-btn { background: #0A3D2E; color: white; border: none; border-radius: 6px; padding: 5px 10px; font-size: 12px; cursor: pointer; }
+    .sim-btn:hover { background: #0F6E56; }
+    .batch-btn { background: #C9A84C; color: #0A3D2E; border: none; border-radius: 6px; padding: 6px 12px; font-weight: 700; font-size: 12px; cursor: pointer; }
+    .status-bar { margin-top: 10px; padding: 8px 12px; background: #0A3D2E; color: white; border-radius: 6px; font-size: 13px; display: flex; align-items: center; gap: 8px; }
+    .spin { display: inline-block; animation: spin 1s linear infinite; }
   </style>
 </head>
 <body>
@@ -56,7 +63,8 @@ mockRouter.get('/', async (_req, res) => {
   </div>
 
   <div class="setup">
-    <h2>1. Select a job to apply for:</h2>
+    <h2>1. Simulate a fresh application:</h2>
+    <p style="color:#888;font-size:12px;margin-bottom:10px">Pick a job to apply for as a new candidate via WhatsApp.</p>
     <div class="job-list">
       ${jobs.map(j => `
         <button class="job-btn" onclick="startConversation('${j.waShortcode}','${j.agency.id}','${j.agency.name}')">
@@ -66,6 +74,23 @@ mockRouter.get('/', async (_req, res) => {
       `).join('')}
     </div>
     ${jobs.length === 0 ? '<p style="color:#888;font-size:13px">No active jobs found. Create and activate a job first.</p>' : ''}
+  </div>
+
+  <div class="setup" id="screeningQueue">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <h2 style="margin:0">2. Invited candidates awaiting screening:</h2>
+      <button class="batch-btn" id="batchBtn" onclick="simulateAll()" style="display:none">
+        Simulate all (<span id="batchCount">0</span>)
+      </button>
+    </div>
+    <p style="color:#888;font-size:12px;margin-bottom:10px">Recruiter invited these candidates — click to simulate their 5 baseline answers.</p>
+    <div id="screeningList" style="display:flex;flex-direction:column;gap:6px">
+      <div style="color:#888;font-size:13px">Loading…</div>
+    </div>
+    <div id="simStatus" class="status-bar" style="display:none">
+      <span class="spin">⟳</span>
+      <span id="simStatusText">AI is screening…</span>
+    </div>
   </div>
 
   <div class="chat-container" id="chatContainer" style="display:none">
@@ -134,6 +159,79 @@ mockRouter.get('/', async (_req, res) => {
         addMessage('inbound', '⚠️ Error connecting to server')
       }
     }
+
+    async function loadScreening() {
+      try {
+        const res = await fetch('/mock/screening-candidates')
+        const { data } = await res.json()
+        const list = document.getElementById('screeningList')
+        const btn = document.getElementById('batchBtn')
+        const count = document.getElementById('batchCount')
+        if (!data || !data.length) {
+          list.innerHTML = '<div style="color:#888;font-size:13px">No candidates in screening. Invite from CV Inbox or Talent Pool.</div>'
+          btn.style.display = 'none'
+          return
+        }
+        count.textContent = data.length
+        btn.style.display = 'inline-block'
+        list.innerHTML = data.map(c => {
+          const name = (c.fullName || '(unnamed)').replace(/'/g, '')
+          const jt   = (c.job && c.job.title) || ''
+          const jc   = (c.job && c.job.hiringCompany) || ''
+          return '<div class="sim-row">' +
+            '<div><div style="font-weight:600;font-size:13px">' + name + '</div>' +
+            '<div style="font-size:11px;color:#888">' + jt + ' · ' + jc + '</div></div>' +
+            '<button class="sim-btn" data-id="' + c.id + '" data-name="' + name + '" onclick="simulateOne(this)">Simulate</button>' +
+            '</div>'
+        }).join('')
+      } catch(e) {
+        document.getElementById('screeningList').innerHTML = '<div style="color:#c00;font-size:13px">Failed to load</div>'
+      }
+    }
+
+    async function simulateOne(btnEl) {
+      const candidateId = btnEl.dataset.id
+      const name = btnEl.dataset.name
+      const status = document.getElementById('simStatus')
+      const text = document.getElementById('simStatusText')
+      status.style.display = 'flex'
+      text.textContent = 'AI is screening ' + name + '…'
+      const work = fetch('/mock/simulate-screening', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ candidateId })
+      }).then(r => r.json()).catch(() => ({ data: {} }))
+      const wait = new Promise(r => setTimeout(r, 2500))
+      const [result] = await Promise.all([work, wait])
+      const r = (result && result.data) || {}
+      const recLabel = r.aiRecommendation === 'advance' ? '✅ AI: Advance' :
+                       r.aiRecommendation === 'hold'    ? '⚠️ AI: Hold'    :
+                       r.aiRecommendation === 'reject'  ? '❌ AI: Reject'  : '— no recommendation'
+      text.textContent = name + ': composite ' + (r.compositeScore ?? '?') + ' (commit ' + (r.commitmentScore ?? '?') + ') → ' + recLabel
+      setTimeout(() => { status.style.display = 'none'; loadScreening() }, 2000)
+    }
+
+    async function simulateAll() {
+      const btns = document.querySelectorAll('#screeningList .sim-btn')
+      const ids = Array.from(btns).map(b => ({ id: b.dataset.id, name: b.dataset.name }))
+      if (!ids.length) return
+      const status = document.getElementById('simStatus')
+      const text = document.getElementById('simStatusText')
+      status.style.display = 'flex'
+      for (let i = 0; i < ids.length; i++) {
+        text.textContent = 'AI is screening ' + ids[i].name + ' (' + (i + 1) + '/' + ids.length + ')…'
+        await fetch('/mock/simulate-screening', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ candidateId: ids[i].id })
+        }).catch(() => {})
+        await new Promise(r => setTimeout(r, 800))
+      }
+      text.textContent = 'Done — ' + ids.length + ' candidates screened'
+      setTimeout(() => { status.style.display = 'none'; loadScreening() }, 2000)
+    }
+
+    loadScreening()
   </script>
 </body>
 </html>`

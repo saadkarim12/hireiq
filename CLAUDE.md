@@ -94,12 +94,22 @@ cd ~/hireiq/frontend && npm run dev
 - **After WhatsApp**: Full Composite = CV Match (40%) + Commitment (40%) + Salary Fit (20%)
 - Talent Pool shows fresh re-scored value for selected job, not stored historic score
 
+### AI Recommendation Logic (L1 CV Screened — fully wired)
+- `!hardFilterPass` → **reject** ("Missing must-have: <skill>")
+- `composite < 55` → **reject** ("CV doesn't match role requirements")
+- `composite 55-74` → **hold** ("Borderline match — review carefully")
+- `composite >= 75 AND commitment < 70` → **hold** ("High CV match but vague answers — worth a call")
+- `composite >= 75 AND commitment >= 70` → **advance** ("Strong CV match + clear answers")
+- L2-L5 transitions: stub (`null`) — frontend renders gray `⏳ Pending <next action>` badge. Phase 7 will fill these in as interview/feedback/offer data flows.
+
 ### Key Design Decisions
+- **AI proposes, recruiter decides — at EVERY stage transition.** The AI never auto-advances candidates between pipeline stages. Each transition has its own recommendation logic (`advance` / `hold` / `reject`) with reasoning stored on the candidate. When signal data is missing (e.g., interview feedback not yet in), show `⏳ Pending <next action>` instead of silently advancing. Every forward move requires explicit recruiter action (drag on kanban or click in drawer).
 - **Two-stage scoring** — CV stage vs post-WhatsApp (honest, avoids fake numbers)
 - **Re-score on demand** — Talent Pool candidates re-scored fresh per job
 - **Personalised WhatsApp** — Different message tone for new vs pool candidates
 - **Pipeline level naming** — Applied/L1/L2/L3/Final (not generic HR labels)
 - **Funnel + Kanban** — Funnel for big picture, kanban for action
+- **Stage-change audit** — Every pipelineStage transition is appended to `pipelineStageHistory` JSON array `{from, to, timestamp, userId}`. Backward moves are logged (not blocked) so we can answer "why was this candidate un-promoted?"
 
 ### Seeded Test Data
 6 synthetic candidates in pool:
@@ -114,20 +124,13 @@ Plus 10 Cloud Architect pipeline candidates (Omar Farouk, Ahmed Al-Rashidi, Sara
 
 ## Today's Priority — Phase 6j
 
-### Priority 1: WhatsApp Screening Simulation
-**Problem**: Candidates invited via WhatsApp sit in `screening` stage forever. Mock doesn't simulate them answering.
+### Priority 1: WhatsApp Screening Simulation ✅ COMPLETE (v1.7.0)
+One-click simulate on the mock page (`http://localhost:3003/mock`) fires all 5 baseline answers, evaluates via Claude, triggers `/api/v1/ai/score`, and sets `aiRecommendation` (`advance`/`hold`/`reject`) + reasoning. **Never auto-advances stage** — recruiter must drag the card. Tone distribution: 60% strong → advance / 25% mixed → hold / 15% vague → reject. Verified E2E with Omar (advance), Tariq (advance), Nadia (advance on patched Cloud Architect job). Backward drags logged to audit trail.
 
-**Fix needed**:
-1. Check `~/hireiq/backend/src/whatsapp-service/mock/mock-router.ts` — how is simulation triggered?
-2. Add ability to simulate all 5 baseline questions answered
-3. Trigger Commitment Score calculation after completion
-4. Auto-advance candidate: screening → shortlisted (L1 CV Screened) if score ≥ 75
-5. Test: Invite candidate → see them auto-move through pipeline
-
-### Priority 2: CandidatePanel Polish
+### Priority 2: CandidatePanel Polish  ← NEXT
 **Problem**: Pipeline drawer (when clicking kanban card) shows inconsistent score view vs Talent Pool drawer.
 
-**Fix needed**: Same clean score section as Talent Pool drawer — CV Screening Score, skill evidence chips, work experience, etc.
+**Fix needed**: Same clean score section as Talent Pool drawer — CV Screening Score, skill evidence chips, work experience, etc. Also render the new AI Recommendation block prominently (already wired in `CandidatePanel.tsx`, but verify consistency across entry points).
 
 ### Priority 3: Dashboard Real-time Refresh
 **Problem**: Dashboard stats stale after inviting candidates — needs page reload.
@@ -141,6 +144,11 @@ Plus 10 Cloud Architect pipeline candidates (Omar Farouk, Ahmed Al-Rashidi, Sara
 - **waNumberHash column**: Limited to `@db.VarChar(64)` — must truncate
 - **Duplicate TopBar**: Layout already provides it — never import TopBar in page files
 - **Bulk upload cvStructured**: Must be truncated to 50k chars to avoid column overflow
+- **`hardFilterFailReason`**: `@db.VarChar(200)` — truncate Claude output to 200 chars in score-candidate.ts
+
+## Known Issues (defer to Phase 7)
+- **JD must-haves generator is too aggressive**: For seed jobs (Cloud Architect, Enterprise Architect) Claude extracted 9-10 must-have skills, causing every synthetic candidate to fail `hardFilterPass`. Patched two seed jobs manually on 2026-04-19 to match their `required_skills` column (Azure + DevOps for Cloud Architect, TOGAF + Azure + EA + Security for Enterprise Architect). Real fix: tune `process-jd.ts` prompt to cap must-haves at 3-5 items and align with `required_skills`.
+- **Seed job salary bands**: Cloud Architect was seeded at SAR 10-15k (unrealistic). Patched to AED 20-35k. JD generator should set band from market data, not freely invent.
 
 ## Workflow Principles
 - **Saad works one step at a time** — confirm visible progress before next step

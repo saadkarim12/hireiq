@@ -6,6 +6,7 @@ import { logger } from '../shared/logger'
 import { webhookRouter } from './handlers/webhook'
 import { sendRouter }    from './handlers/send'
 import { mockRouter }    from './mock/mock-router'
+import { simulateScreeningRouter } from './mock/simulate-screening'
 
 const app  = express()
 const PORT = process.env.WHATSAPP_PORT || 3003
@@ -24,6 +25,7 @@ app.use('/api/v1/wa', sendRouter)
 // Mock UI for testing without real WhatsApp
 if (process.env.WHATSAPP_MODE === 'mock' || process.env.NODE_ENV === 'development') {
   app.use('/mock', mockRouter)
+  app.use('/mock', simulateScreeningRouter)
   logger.info('📱 WhatsApp MOCK mode active — test at http://localhost:3003/mock')
 }
 

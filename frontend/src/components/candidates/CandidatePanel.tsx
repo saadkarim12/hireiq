@@ -10,6 +10,7 @@ import {
   CheckCircleIcon, HandThumbDownIcon, PauseCircleIcon,
 } from '@heroicons/react/24/outline'
 import type { PipelineStage, RejectionReason, CandidateFull } from '@/types'
+import { AiRecommendationBadge } from './AiRecommendationBadge'
 import toast from 'react-hot-toast'
 import clsx from 'clsx'
 
@@ -130,6 +131,27 @@ export function CandidatePanel({ candidateId, onClose, onStatusUpdate }: Candida
                 </p>
               </div>
             )}
+
+            {/* AI Recommendation — proposes, recruiter decides */}
+            <div className="mt-3 bg-white border border-gray-200 rounded-lg px-3 py-2.5">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 min-w-0">
+                  <AiRecommendationBadge
+                    recommendation={(candidate as any).aiRecommendation ?? null}
+                    pipelineStage={candidate.pipelineStage}
+                    size="md"
+                  />
+                  {(candidate as any).aiRecommendationReason && (
+                    <p className="text-xs text-gray-600 truncate">
+                      {(candidate as any).aiRecommendationReason}
+                    </p>
+                  )}
+                </div>
+                <span className="text-[10px] uppercase tracking-wide text-gray-400 flex-shrink-0">
+                  Recruiter decides
+                </span>
+              </div>
+            </div>
           </div>
         )}
 

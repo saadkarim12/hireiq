@@ -4,6 +4,14 @@ import { prisma } from '../../shared/db'
 import { requireAuth, AuthRequest } from '../middleware/auth'
 import { logger } from '../../shared/logger'
 import { io } from '../index'
+import { computeRecommendationForCandidate, NEXT_STAGE_FOR } from '../../shared/recommendations'
+
+// Forward order for detecting backward moves (earlier = earlier in recruiter flow)
+const STAGE_ORDER: Record<string, number> = {
+  applied: 0, screening: 1, cv_received: 1, evaluated: 1,
+  shortlisted: 2, interviewing: 3, offered: 4, hired: 5,
+  rejected: -1, withdrawn: -1, held: -1,
+}
 
 export const candidatesRouter = Router()
 candidatesRouter.use(requireAuth)
@@ -107,6 +115,36 @@ candidatesRouter.patch('/:id/status', async (req: AuthRequest, res) => {
     if (pipelineStage === 'rejected') {
       updates.deletionScheduledAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
     }
+
+    // Append stage transition to audit history
+    const prevStage = candidate.pipelineStage
+    const historyEntry = {
+      from: prevStage, to: pipelineStage,
+      timestamp: new Date().toISOString(),
+      userId: req.user!.id,
+    }
+    const existingHistory = Array.isArray((candidate as any).pipelineStageHistory)
+      ? (candidate as any).pipelineStageHistory
+      : []
+    updates.pipelineStageHistory = [...existingHistory, historyEntry]
+
+    // Flag backward moves in logs (not blocking)
+    const fromIdx = STAGE_ORDER[prevStage] ?? 0
+    const toIdx = STAGE_ORDER[pipelineStage] ?? 0
+    if (toIdx >= 0 && fromIdx > toIdx) {
+      logger.warn(`Backward stage move: candidate ${candidate.id} ${prevStage} → ${pipelineStage} by user ${req.user!.id}`)
+    }
+
+    // Clear the current recommendation (it was for the transition just taken) and
+    // recompute for the new next-stage. Stubs return null for L2-L5 — frontend
+    // will render a "Pending <next action>" badge based on pipelineStage.
+    const candidateAfter = { ...candidate, ...updates, pipelineStage }
+    const newRec = NEXT_STAGE_FOR[pipelineStage]
+      ? computeRecommendationForCandidate(candidateAfter as any)
+      : null
+    updates.aiRecommendation       = newRec?.recommendation || null
+    updates.aiRecommendationReason = newRec?.reason ? newRec.reason.slice(0, 500) : null
+    updates.aiRecommendationStage  = newRec?.stage || null
 
     const updated = await prisma.candidate.update({ where: { id: req.params.id }, data: updates })
 

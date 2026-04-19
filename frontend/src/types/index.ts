@@ -154,6 +154,14 @@ export interface CandidateScores {
   hardFilterFailReason: string | null
 }
 
+export type AiRecommendation = 'advance' | 'hold' | 'reject'
+export type AiRecommendationStage =
+  | 'l1_cv_screened'
+  | 'l2_wa_screened'
+  | 'l3_interviewed'
+  | 'final_shortlist'
+  | 'hired'
+
 export interface CandidateSummary {
   id: string
   agencyId: string
@@ -171,6 +179,9 @@ export interface CandidateSummary {
   dataTags: DataTags
   pipelineStage: PipelineStage
   conversationState: ConversationState
+  aiRecommendation: AiRecommendation | null
+  aiRecommendationReason: string | null
+  aiRecommendationStage: AiRecommendationStage | null
   createdAt: string
   shortlistedAt: string | null
 }

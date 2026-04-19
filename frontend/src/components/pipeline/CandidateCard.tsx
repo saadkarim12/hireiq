@@ -3,6 +3,7 @@
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { ScoreBar } from '@/components/candidates/ScoreBadge'
+import { AiRecommendationBadge } from '@/components/candidates/AiRecommendationBadge'
 import { formatDistanceToNow } from 'date-fns'
 import type { CandidateSummary } from '@/types'
 import clsx from 'clsx'
@@ -92,6 +93,14 @@ export function CandidateCard({ candidate, onClick, isDragging }: CandidateCardP
           <ScoreBar score={(candidate.scores?.compositeScore ?? candidate.compositeScore)} />
         </div>
       )}
+
+      {/* AI recommendation */}
+      <div className="mb-2">
+        <AiRecommendationBadge
+          recommendation={candidate.aiRecommendation ?? null}
+          pipelineStage={candidate.pipelineStage}
+        />
+      </div>
 
       {/* Tags row */}
       <div className="flex flex-wrap gap-1 mb-2">

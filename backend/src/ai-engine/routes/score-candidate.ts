@@ -3,6 +3,7 @@ import { callClaudeWithTool } from '../claude-client'
 import { prisma } from '../../shared/db'
 import { logger } from '../../shared/logger'
 import Anthropic from '@anthropic-ai/sdk'
+import { recommendForL1 } from '../../shared/recommendations'
 
 export const scoreCandidateRoute = Router()
 
@@ -107,35 +108,42 @@ ${screeningAnswers||'None yet'}`,
 
     const returningInfo = await checkReturningCandidate(candidateId, jobId, candidate.agencyId)
 
-    const updated = await prisma.candidate.update({
+    // AI proposes, recruiter decides — compute recommendation but never change stage here.
+    const missingSkills = (scores.evidence?.mustHaveSkills || [])
+      .filter((s: any) => s && s.found === false)
+      .map((s: any) => s.skill)
+    const rec = recommendForL1({
+      compositeScore:       scores.compositeScore,
+      commitmentScore:      scores.commitmentScore,
+      hardFilterPass:       scores.hardFilterPass,
+      hardFilterFailReason: scores.hardFilterFailReason,
+      missingSkills,
+    })
+
+    await prisma.candidate.update({
       where: { id: candidateId },
       data: {
-        commitmentScore:      scores.commitmentScore,
-        cvMatchScore:         scores.cvMatchScore,
-        salaryFitScore:       scores.salaryFitScore,
-        compositeScore:       scores.compositeScore,
-        hardFilterPass:       scores.hardFilterPass,
-        hardFilterFailReason: scores.hardFilterFailReason||null,
-        authenticityFlag:     scores.authenticityFlag||'none',
+        commitmentScore:        scores.commitmentScore,
+        cvMatchScore:           scores.cvMatchScore,
+        salaryFitScore:         scores.salaryFitScore,
+        compositeScore:         scores.compositeScore,
+        hardFilterPass:         scores.hardFilterPass,
+        hardFilterFailReason:   scores.hardFilterFailReason ? String(scores.hardFilterFailReason).slice(0, 200) : null,
+        authenticityFlag:       scores.authenticityFlag||'none',
         dataTags: JSON.parse(JSON.stringify({
           ...(scores.dataTags||{}),
           evidence:           scores.evidence||{},
           parseConfidence:    scores.parseConfidence||75,
           returningCandidate: returningInfo||null,
         })),
-        pipelineStage: 'evaluated',
+        aiRecommendation:       rec?.recommendation || null,
+        aiRecommendationReason: rec?.reason ? rec.reason.slice(0, 500) : null,
+        aiRecommendationStage:  rec?.stage || null,
       },
     })
 
-    if (scores.hardFilterPass && scores.compositeScore >= 65) {
-      const count = await prisma.candidate.count({ where: { jobId, pipelineStage: 'shortlisted' } })
-      if (count < 20) {
-        await prisma.candidate.update({ where: { id: candidateId }, data: { pipelineStage: 'shortlisted', shortlistedAt: new Date() } })
-      }
-    }
-
-    logger.info(`Scored ${candidateId}: composite=${scores.compositeScore} parseConfidence=${scores.parseConfidence}`)
-    res.json({ success: true, data: { ...scores, returningCandidate: returningInfo } })
+    logger.info(`Scored ${candidateId}: composite=${scores.compositeScore} → rec=${rec?.recommendation || 'none'}`)
+    res.json({ success: true, data: { ...scores, aiRecommendation: rec, returningCandidate: returningInfo } })
   } catch (err: any) {
     logger.error('Score error', { err: err.message })
     res.status(500).json({ success: false, error: { code: 'AI_ERROR', message: err.message } })
