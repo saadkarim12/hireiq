@@ -127,6 +127,7 @@ One primary button per drawer, label follows the next stage: **"✅ Approve to L
 
 ### Key Design Decisions
 - **AI proposes, recruiter decides — at EVERY stage transition.** The AI never auto-advances candidates between pipeline stages. Each transition has its own recommendation logic (`advance` / `hold` / `reject`) with reasoning stored on the candidate. When signal data is missing (e.g., interview feedback not yet in), show `⏳ Pending <next action>` instead of silently advancing. Every forward move requires explicit recruiter action (drag on kanban or click in drawer).
+- **Single-action stage transitions.** Each pipeline stage has exactly ONE primary button: "Approve to [next]" (L1 / L2 / L3 / Final / Hired). The approval is the decision — it simultaneously fires every side-effect for that stage (WhatsApp simulation, scoring recomputation, audit log, socket emit). No separate "invite" / "trigger" / "send" steps. Why: splitting approve from invite adds ceremony without changing the recruiter decision. One decision per drawer, one button per stage.
 - **Two-stage scoring** — CV stage vs post-WhatsApp (honest, avoids fake numbers)
 - **Re-score on demand** — Talent Pool candidates re-scored fresh per job
 - **Personalised WhatsApp** — Different message tone for new vs pool candidates
@@ -145,22 +146,31 @@ One primary button per drawer, label follows the next stage: **"✅ Approve to L
 
 Plus 10 Cloud Architect pipeline candidates (Omar Farouk, Ahmed Al-Rashidi, Sarah Mitchell, etc.)
 
-## Today's Priority — Phase 6j
+## Shipped Today (2026-04-19) — Phase 6j + 6k
 
-### Priority 1: WhatsApp Screening Simulation ✅ COMPLETE (v1.7.0, re-architected in v1.8.0 / Phase 6k)
+### Phase 6j ✅ SHIPPED (v1.7.0) — WhatsApp Screening Simulation
+One-click simulate on the mock page fires 5 canned answers (60% strong / 25% mixed / 15% vague tone distribution). Claude evaluates each → full composite → aiRecommendation. Mock page retained as admin/demo override.
 
-### Phase 6k ✅ COMPLETE (v1.8.0) — Re-architected simulation trigger
-Per stage semantics corrected. Applied = CV-only. L1 = WhatsApp screening (sim fires automatically on entry, async). L2/L3/Final = interview feedback (schema ready, Phase 7 UI). See "Stage Transitions" above. Two interview score fields landed: `interviewTechnicalScore`, `interviewCultureScore` (plus matching notes).
+### Phase 6k ✅ SHIPPED (v1.8.0) — Flow Correction + Single-Action Transitions
+- Applied = CV-only scoring (cvMatchScore only, commitment/salary/composite greyed until WhatsApp runs)
+- L1 entry triggers WhatsApp simulation automatically (async ~15-30s, fire-and-forget)
+- Unified button model: one "Approve to [Lx]" per stage. Applied→L1 is the only transition with a paid-Claude confirmation modal
+- Interview score fields in schema (`interviewTechnicalScore`, `interviewCultureScore` + matching notes) — Phase 7 UI
+- Kanban "🔄 Screening…" badge during async sim window, 3s poll interval
+- Migration: 17 existing candidates reset from `screening` → `applied`, composite zeroed, L1 recommendations backfilled via SQL
 
-### Priority 2: CandidatePanel Polish  ← NEXT
-**Problem**: Pipeline drawer (when clicking kanban card) shows inconsistent score view vs Talent Pool drawer.
+## Tomorrow's Priorities
 
-**Fix needed**: Same clean score section as Talent Pool drawer — CV Screening Score, skill evidence chips, work experience, etc. Also render the new AI Recommendation block prominently (already wired in `CandidatePanel.tsx`, but verify consistency across entry points).
+### Priority 1: CandidatePanel drawer consistency
+**Problem**: Pipeline drawer (click kanban card) still shows a different score layout vs Talent Pool drawer. Post-Phase-6k the AI Recommendation block is wired in but the surrounding score section, skill-evidence chips, and work-experience layout don't match the Talent Pool drawer's cleaner structure.
+**Fix needed**: Align the two drawers on a single score section — CV Screening Score at top, skill evidence ✓/✗ chips, hard-filter result, full CV details below (Work Experience, Education, Certifications). Verify consistency at every entry point (CV Inbox, Talent Pool, Pipeline).
 
-### Priority 3: Dashboard Real-time Refresh
-**Problem**: Dashboard stats stale after inviting candidates — needs page reload.
+### Priority 2: Dashboard real-time refresh
+**Problem**: Dashboard KPIs stale after Talent Pool invites / stage changes — needs hard reload.
+**Fix needed**: TanStack Query invalidation on mutations. Invalidate `['dashboard-stats']` and `['recent-activity']` from every mutation that changes candidate count or stage (pool invite, PATCH /status, scoring completion). Keep `refetchInterval` as a fallback but don't rely on it.
 
-**Fix needed**: TanStack Query invalidation on mutations so KPIs update live.
+### Priority 3: BRD v5.5 (opportunistic)
+If product decisions emerge during the day worth versioning, create v5.5. Otherwise hold — v5.4 documents current state accurately.
 
 ## Known Gotchas
 - **Docker PATH**: `export PATH="$PATH:/Applications/Docker.app/Contents/Resources/bin"` before any `docker` command
@@ -175,6 +185,7 @@ Per stage semantics corrected. Applied = CV-only. L1 = WhatsApp screening (sim f
 - **JD must-haves generator is too aggressive**: For seed jobs (Cloud Architect, Enterprise Architect) Claude extracted 9-10 must-have skills, causing every synthetic candidate to fail `hardFilterPass`. Patched two seed jobs manually on 2026-04-19 to match their `required_skills` column (Azure + DevOps for Cloud Architect, TOGAF + Azure + EA + Security for Enterprise Architect). Real fix: tune `process-jd.ts` prompt to cap must-haves at 3-5 items and align with `required_skills`.
 - **Seed job salary bands**: Cloud Architect was seeded at SAR 10-15k (unrealistic). Patched to AED 20-35k. JD generator should set band from market data, not freely invent.
 - **`evaluated` stage maps to Applied column in kanban**: Current mapping hides that scoring completed but may have produced null or weak results. Consider separating `evaluated` into its own visual state (e.g. a thin divider in the Applied column for scored-but-not-yet-advanced candidates) or reviewing stage mapping entirely in Phase 7. Related UX fix on 2026-04-19: dropped `evaluated` from the "Pending screening" badge label so scoring-complete candidates without a recommendation render no badge (honest) instead of falsely appearing unscored.
+- **No timeout logic for WhatsApp non-response**: once a candidate enters L1 and the simulation (or real 360dialog run) starts, there's no timer. If the candidate never replies / sim silently fails, the card stays in `shortlisted` with `conversationState=screening_q*` forever. Phase 7 work: auto-reminder at 24h, timeout at 48h with a `screening_timeout` recommendation that prompts recruiter to chase or reject.
 
 ## Workflow Principles
 - **Saad works one step at a time** — confirm visible progress before next step
