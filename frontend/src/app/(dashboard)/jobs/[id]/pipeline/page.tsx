@@ -206,7 +206,7 @@ ${job.locationCountry === 'AE' ? '#UAEJobs #DubaiJobs #AbuDhabiJobs' : '#SaudiJo
 
 
         {/* Pipeline Funnel Summary */}
-        <div className="mb-4 bg-white border border-gray-200 rounded-2xl p-5">
+        <div className="mb-4 bg-white border border-gray-200 rounded-2xl p-6">
           <div className="flex items-center justify-between mb-4">
             <div>
               <h2 className="text-base font-semibold" style={{ color: '#0A3D2E' }}>Pipeline Overview</h2>
@@ -235,14 +235,17 @@ ${job.locationCountry === 'AE' ? '#UAEJobs #DubaiJobs #AbuDhabiJobs' : '#SaudiJo
               ]
 
               return (
-                <div className="grid grid-cols-5 gap-2">
+                // Match kanban layout exactly: flex gap-4 with w-72 fixed columns.
+                // Keeps each funnel cell vertically aligned with its kanban column at
+                // any viewport width.
+                <div className="flex gap-4 overflow-x-auto">
                   {stages.map((s, i) => {
                     const count = candidates.filter(c => s.match.includes(c.pipelineStage)).length
                     const prev = i > 0 ? candidates.filter(c => stages[i-1].match.includes(c.pipelineStage)).length : count
                     const dropRate = prev > 0 ? Math.round((count / prev) * 100) : 0
 
                     return (
-                      <div key={s.key} className="flex flex-col items-center">
+                      <div key={s.key} className="flex-shrink-0 w-72 flex flex-col items-center">
                         <div className="h-5 flex items-center justify-center">
                           {i > 0 && (
                             <span className="text-[10px] font-medium text-gray-400">
