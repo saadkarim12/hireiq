@@ -74,26 +74,37 @@ export default function DashboardPage() {
   const recent: any[] = recentRes?.data?.data || []
   const pool: any[] = poolRes?.data?.data || []
 
-  const activeJobs = jobs.filter((j: any) => j.status === 'active')
-  const closedJobs = jobs.filter((j: any) => j.status === 'closed')
   const cvsProcessed = candidates.filter((c: any) => c.fullName && c.fullName !== '<UNKNOWN>' && c.fullName !== 'UNKNOWN')
+
+  // Phase 6k semantics:
+  //   Applied / Evaluated with AI recommendation  → "Awaiting Review" (recruiter needs to Approve to L1)
+  //   shortlisted + conversationState=screening_q* → "In Screening" (WhatsApp sim running)
+  //   shortlisted (otherwise)                     → "Shortlisted" (L1 done, awaiting Approve to L2)
+  //   interviewing                                → "Interviewing" (L2, awaiting Approve to L3)
+  const awaitingReview = candidates.filter((c: any) =>
+    ['applied', 'evaluated'].includes(c.pipelineStage) && c.aiRecommendation != null
+  )
+  const inScreening = candidates.filter((c: any) =>
+    c.pipelineStage === 'shortlisted' &&
+    typeof c.conversationState === 'string' &&
+    c.conversationState.startsWith('screening_q')
+  )
   const shortlisted = candidates.filter((c: any) => c.pipelineStage === 'shortlisted')
-  const inScreening = candidates.filter((c: any) => c.pipelineStage === 'screening')
+  const interviewing = candidates.filter((c: any) => c.pipelineStage === 'interviewing')
   const poolSize = pool.filter((c: any) => c.fullName && c.fullName !== '<UNKNOWN>' && c.pipelineStage !== 'rejected')
 
   const conversionRate = cvsProcessed.length > 0
     ? Math.round((shortlisted.length / cvsProcessed.length) * 100) : 0
 
-  const avgDays = shortlisted.length > 0
-    ? Math.round(shortlisted.reduce((acc: number, c: any) => {
-        return acc + Math.floor((new Date().getTime() - new Date(c.createdAt).getTime()) / 86400000)
-      }, 0) / shortlisted.length) : null
-
-  const whatsappInvited = candidates.filter((c: any) =>
-    ['screening', 'shortlisted', 'interviewing', 'offered', 'hired'].includes(c.pipelineStage)
+  // WhatsApp response rate: of those who were invited to WhatsApp (L1+), what % finished screening?
+  const invitedToWa = candidates.filter((c: any) =>
+    ['shortlisted', 'interviewing', 'offered', 'hired'].includes(c.pipelineStage)
   )
-  const whatsappResponseRate = whatsappInvited.length > 0
-    ? Math.round(((whatsappInvited.length - inScreening.length) / whatsappInvited.length) * 100) : null
+  const stillScreening = invitedToWa.filter((c: any) =>
+    typeof c.conversationState === 'string' && c.conversationState.startsWith('screening_q')
+  )
+  const whatsappResponseRate = invitedToWa.length > 0
+    ? Math.round(((invitedToWa.length - stillScreening.length) / invitedToWa.length) * 100) : null
 
   // Recent activity — last 10 candidates sorted by updatedAt
   const activity = [...recent]
@@ -101,15 +112,19 @@ export default function DashboardPage() {
     .sort((a: any, b: any) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime())
     .slice(0, 10)
 
-  const kpis = [
-    { icon: '💼', value: activeJobs.length, label: 'Active Jobs', sub: 'Open roles', color: '#0A3D2E', bg: '#E8F5EE', onClick: () => router.push('/jobs') },
-    { icon: '✅', value: closedJobs.length, label: 'Jobs Closed', sub: 'Total placements', color: '#166534', bg: '#DCFCE7', onClick: () => router.push('/jobs') },
-    { icon: '📄', value: cvsProcessed.length, label: 'CVs Processed', sub: 'AI parsed in period', color: '#92400E', bg: '#FEF3C7', onClick: () => router.push('/cv-inbox') },
-    { icon: '💬', value: inScreening.length, label: 'In Screening', sub: 'WhatsApp in progress', color: '#1D4ED8', bg: '#EFF6FF', onClick: () => router.push('/talent-pool') },
-    { icon: '⭐', value: shortlisted.length, label: 'Shortlisted', sub: 'Passed all stages', color: '#C9A84C', bg: '#FEF3C7', onClick: () => router.push('/talent-pool') },
-    { icon: '📊', value: `${conversionRate}%`, label: 'Conversion Rate', sub: 'CVs → Shortlisted', color: '#7C3AED', bg: '#F5F3FF', onClick: () => {} },
-    { icon: '⏱', value: avgDays ? `${avgDays}d` : '—', label: 'Avg Time to Fill', sub: 'CV upload → shortlisted', color: '#C2410C', bg: '#FFF7ED', onClick: () => {} },
-    { icon: '👥', value: poolSize.length, label: 'Talent Pool Size', sub: 'Total active candidates', color: '#0F6E56', bg: '#E1F5EE', onClick: () => router.push('/talent-pool') },
+  // Row 1 — Action items (what needs recruiter attention right now)
+  const actionKpis = [
+    { icon: '👀', value: awaitingReview.length, label: 'Awaiting Review', sub: 'AI scored — needs Approve to L1', color: '#B45309', bg: '#FEF3C7', onClick: () => router.push('/jobs') },
+    { icon: '💬', value: inScreening.length,    label: 'In Screening',    sub: 'WhatsApp sim in progress',         color: '#1D4ED8', bg: '#EFF6FF', onClick: () => router.push('/jobs') },
+    { icon: '⭐', value: shortlisted.length,    label: 'Shortlisted',     sub: 'L1 complete — ready for L2',        color: '#C9A84C', bg: '#FEF3C7', onClick: () => router.push('/jobs') },
+    { icon: '🎙', value: interviewing.length,   label: 'Interviewing',    sub: 'L2 complete — ready for L3',        color: '#7C3AED', bg: '#F5F3FF', onClick: () => router.push('/jobs') },
+  ]
+  // Row 2 — Performance metrics (outcomes + throughput)
+  const metricKpis = [
+    { icon: '📄', value: cvsProcessed.length,        label: 'CVs Processed',         sub: 'AI parsed in period',      color: '#92400E', bg: '#FEF3C7', onClick: () => router.push('/cv-inbox') },
+    { icon: '📊', value: `${conversionRate}%`,       label: 'Conversion Rate',       sub: 'CVs → Shortlisted',         color: '#7C3AED', bg: '#F5F3FF', onClick: () => {} },
+    { icon: '📞', value: whatsappResponseRate == null ? '—' : `${whatsappResponseRate}%`, label: 'WhatsApp Response Rate', sub: 'L1+ who finished screening', color: '#0F6E56', bg: '#E1F5EE', onClick: () => {} },
+    { icon: '👥', value: poolSize.length,            label: 'Talent Pool Size',      sub: 'Total active candidates',   color: '#0A3D2E', bg: '#E8F5EE', onClick: () => router.push('/talent-pool') },
   ]
 
   return (
@@ -133,9 +148,20 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* KPI Grid */}
-      <div className="grid grid-cols-4 gap-4 mb-8">
-        {kpis.map((k, i) => <KpiCard key={i} {...k} />)}
+      {/* KPI Grid — Row 1: action items, Row 2: performance metrics */}
+      <div className="space-y-4 mb-8">
+        <div>
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Action Items</p>
+          <div className="grid grid-cols-4 gap-4">
+            {actionKpis.map((k, i) => <KpiCard key={i} {...k} />)}
+          </div>
+        </div>
+        <div>
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Performance</p>
+          <div className="grid grid-cols-4 gap-4">
+            {metricKpis.map((k, i) => <KpiCard key={i} {...k} />)}
+          </div>
+        </div>
       </div>
 
       {/* Recent Activity */}
