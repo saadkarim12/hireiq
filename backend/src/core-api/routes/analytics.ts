@@ -195,3 +195,156 @@ analyticsRouter.get('/jobs', async (req: AuthRequest, res) => {
 analyticsRouter.get('/export', async (req: AuthRequest, res) => {
   res.json({ success: true, data: { downloadUrl: `http://localhost:3001/exports/analytics-${Date.now()}.csv` } })
 })
+
+// ── ANALYTICS V1 — aggregate payload for the /analytics page ─────────────────
+// GET /api/v1/analytics?period=30&jobId=<optional>
+// Active Jobs is always agency-wide (never period- or job-filtered). Everything
+// else respects period + optional jobId.
+analyticsRouter.get('/', async (req: AuthRequest, res) => {
+  try {
+    const agencyId = req.user!.agencyId
+    const period = Math.max(1, parseInt((req.query.period as string) || '30'))
+    const jobId = (req.query.jobId as string) || null
+    const fromDate = new Date(Date.now() - period * 86400000)
+
+    const candidateWhere: any = { agencyId, createdAt: { gte: fromDate } }
+    if (jobId) candidateWhere.jobId = jobId
+
+    const [candidates, activeJobs] = await Promise.all([
+      prisma.candidate.findMany({
+        where: candidateWhere,
+        select: {
+          id: true, pipelineStage: true, createdAt: true, hiredAt: true,
+          shortlistedAt: true, sourceChannel: true, compositeScore: true,
+          jobId: true, pipelineStageHistory: true,
+        },
+      }),
+      prisma.job.count({ where: { agencyId, status: 'active' } }),
+    ])
+
+    // ── Funnel (5 stages) ──────────────────────────────────────────────────
+    const stageMatches: Record<string, string[]> = {
+      applied: ['applied', 'evaluated', 'screening'],
+      l1:      ['shortlisted', 'interviewing', 'offered', 'hired'],
+      l2:      ['interviewing', 'offered', 'hired'],
+      l3:      ['offered', 'hired'],
+      final:   ['hired'],
+    }
+    const stageOrder = ['applied', 'l1', 'l2', 'l3', 'final'] as const
+    const funnel = stageOrder.map((stage, i) => {
+      const count = candidates.filter(c => stageMatches[stage].includes(c.pipelineStage)).length
+      const prev = i > 0 ? candidates.filter(c => stageMatches[stageOrder[i-1]].includes(c.pipelineStage)).length : count
+      const dropToNext = i > 0 && prev > 0 ? Math.round(((prev - count) / prev) * 100) : 0
+      return { stage, count, dropToNext }
+    })
+
+    // ── KPIs ───────────────────────────────────────────────────────────────
+    const hired = candidates.filter(c => c.pipelineStage === 'hired')
+    const hireRate = candidates.length > 0
+      ? Math.round((hired.length / candidates.length) * 100)
+      : 0
+
+    // Avg time to fill: for hired candidates in period, days from candidate.createdAt to hiredAt
+    // (job.createdAt would require another query + candidates may pre-date a job edit; candidate.createdAt
+    // captures "when did this application start")
+    const timeToFillDays = hired
+      .filter(c => c.hiredAt && c.createdAt)
+      .map(c => (new Date(c.hiredAt!).getTime() - new Date(c.createdAt).getTime()) / 86400000)
+    const avgTimeToFillDays = timeToFillDays.length > 0
+      ? Math.round(timeToFillDays.reduce((a, b) => a + b, 0) / timeToFillDays.length)
+      : null
+
+    // ── Avg time at each stage ─────────────────────────────────────────────
+    // Uses pipelineStageHistory (array of {from, to, timestamp, userId}) added in v1.7.0.
+    // For each candidate, sort history and for each entry compute (next.timestamp − this.timestamp)
+    // attributed to `this.to` stage. The first entry's `from` stage time = (first.timestamp − createdAt).
+    const stageDurations: Record<string, number[]> = {
+      applied: [], l1: [], l2: [], l3: [], final: [],
+    }
+    const stageToFunnelKey = (s: string): string | null => {
+      if (['applied','evaluated','screening'].includes(s)) return 'applied'
+      if (s === 'shortlisted') return 'l1'
+      if (s === 'interviewing') return 'l2'
+      if (s === 'offered') return 'l3'
+      if (s === 'hired') return 'final'
+      return null
+    }
+    for (const c of candidates) {
+      const history = Array.isArray(c.pipelineStageHistory) ? c.pipelineStageHistory as any[] : []
+      if (history.length === 0) continue
+      const sorted = [...history].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+      // First entry: time in the `from` stage = first.timestamp − createdAt
+      const firstFromKey = stageToFunnelKey(sorted[0].from)
+      if (firstFromKey) {
+        const days = (new Date(sorted[0].timestamp).getTime() - new Date(c.createdAt).getTime()) / 86400000
+        if (days >= 0) stageDurations[firstFromKey].push(days)
+      }
+      // Remaining: time in `to` of entry N = entry N+1 timestamp − entry N timestamp
+      for (let i = 0; i < sorted.length - 1; i++) {
+        const toKey = stageToFunnelKey(sorted[i].to)
+        if (!toKey) continue
+        const days = (new Date(sorted[i+1].timestamp).getTime() - new Date(sorted[i].timestamp).getTime()) / 86400000
+        if (days >= 0) stageDurations[toKey].push(days)
+      }
+      // Last entry's `to` stage is still in progress — skip (incomplete dwell time)
+    }
+    const avgTimeAtStage = stageOrder.map(stage => {
+      const xs = stageDurations[stage]
+      const avgDays = xs.length > 0 ? xs.reduce((a, b) => a + b, 0) / xs.length : null
+      return { stage, avgDays: avgDays != null ? Math.round(avgDays * 10) / 10 : null, sample: xs.length }
+    })
+
+    // ── Source performance ─────────────────────────────────────────────────
+    const bySource: Record<string, { candidates: any[]; hires: number; scoreSum: number; scoreN: number }> = {}
+    for (const c of candidates) {
+      const src = c.sourceChannel || 'unknown'
+      if (!bySource[src]) bySource[src] = { candidates: [], hires: 0, scoreSum: 0, scoreN: 0 }
+      bySource[src].candidates.push(c)
+      if (c.pipelineStage === 'hired') bySource[src].hires++
+      if (c.compositeScore != null) {
+        bySource[src].scoreSum += c.compositeScore
+        bySource[src].scoreN++
+      }
+    }
+    const sourcePerformance = Object.entries(bySource)
+      .map(([source, d]) => ({
+        source,
+        candidates: d.candidates.length,
+        hires: d.hires,
+        conversionRate: d.candidates.length > 0 ? Math.round((d.hires / d.candidates.length) * 100) : 0,
+        avgComposite: d.scoreN > 0 ? Math.round(d.scoreSum / d.scoreN) : null,
+      }))
+      .sort((a, b) => b.candidates - a.candidates)
+
+    // Total stage transitions across all candidates — used by the frontend to
+    // decide whether to render the Time at Stage chart at all.
+    const totalTransitions = candidates.reduce(
+      (n, c) => n + (Array.isArray(c.pipelineStageHistory) ? (c.pipelineStageHistory as any[]).length : 0),
+      0,
+    )
+
+    res.json({
+      success: true,
+      data: {
+        period,
+        jobId,
+        kpis: {
+          activeJobs,                                  // agency-wide, never filtered
+          avgTimeToFillDays,
+          hireRate,
+          costPerHire: null,                           // Phase 7
+        },
+        funnel,
+        avgTimeAtStage,
+        sourcePerformance,
+        recruiterPerformance: [],                      // Phase 7 — requires per-action user tracking
+        meta: {
+          totalCandidates: candidates.length,
+          totalTransitions,
+        },
+      },
+    })
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: err.message || 'Failed' } })
+  }
+})

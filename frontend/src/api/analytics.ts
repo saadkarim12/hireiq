@@ -2,7 +2,38 @@
 import { api } from './client'
 import type { AnalyticsOverview, JobAnalytics, DashboardKPIs } from '@/types'
 
+// Analytics v1 aggregate payload (the /analytics page)
+export interface AnalyticsPayload {
+  period: number
+  jobId: string | null
+  kpis: {
+    activeJobs: number
+    avgTimeToFillDays: number | null
+    hireRate: number
+    costPerHire: number | null
+  }
+  funnel: Array<{ stage: 'applied' | 'l1' | 'l2' | 'l3' | 'final'; count: number; dropToNext: number }>
+  avgTimeAtStage: Array<{ stage: 'applied' | 'l1' | 'l2' | 'l3' | 'final'; avgDays: number | null; sample: number }>
+  sourcePerformance: Array<{
+    source: string
+    candidates: number
+    hires: number
+    conversionRate: number
+    avgComposite: number | null
+  }>
+  recruiterPerformance: Array<{ recruiter: string; decisions: number }>
+  meta: { totalCandidates: number; totalTransitions: number }
+}
+
 export const analyticsApi = {
+  // Analytics v1 — aggregate page payload
+  get: async (period: number, jobId?: string): Promise<AnalyticsPayload> => {
+    const qs = new URLSearchParams({ period: String(period) })
+    if (jobId) qs.set('jobId', jobId)
+    const res = await api.get<AnalyticsPayload>(`/analytics?${qs.toString()}`)
+    return res.data.data
+  },
+
   // Dashboard KPIs
   getDashboardKpis: async (): Promise<DashboardKPIs> => {
     const res = await api.get<DashboardKPIs>('/analytics/dashboard-kpis')
