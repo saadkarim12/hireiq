@@ -282,6 +282,7 @@ ${job.locationCountry === 'AE' ? '#UAEJobs #DubaiJobs #AbuDhabiJobs' : '#SaudiJo
       {selectedCandidateId && (
         <CandidatePanel
           candidateId={selectedCandidateId}
+          context="pipeline"
           onClose={() => setSelectedCandidateId(null)}
           onStatusUpdate={() => {
             queryClient.invalidateQueries({ queryKey: ['job-candidates', id] })

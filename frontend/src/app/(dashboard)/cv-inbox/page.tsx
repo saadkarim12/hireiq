@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/api/client'
 import apiClient from '@/api/client'
 import { toast } from 'react-hot-toast'
+import { CandidatePanel } from '@/components/candidates/CandidatePanel'
 
 const SOURCES = [
   { value: 'linkedin',        label: '💼 LinkedIn' },
@@ -354,127 +355,22 @@ export default function CvInboxPage() {
         )}
       </div>
 
-      {/* Score breakdown drawer */}
+      {/* Candidate drawer — shared component */}
       {selectedInbox && (
-        <div className="fixed inset-0 z-50 flex justify-end" onClick={() => setSelectedInbox(null)}>
-          <div className="absolute inset-0 bg-black/30" />
-          <div className="relative w-full max-w-md bg-white h-full shadow-2xl overflow-y-auto"
-            onClick={e => e.stopPropagation()}>
-            <div className="p-6">
-              <div className="flex items-start justify-between mb-5">
-                <div className="flex items-center gap-3">
-                  <div className="w-11 h-11 rounded-full flex items-center justify-center text-sm font-bold"
-                    style={{ background: '#E8F5EE', color: '#0A3D2E' }}>
-                    {selectedInbox.fullName?.split(' ').map((n: string) => n[0]).join('').slice(0,2)}
-                  </div>
-                  <div>
-                    <h2 className="text-base font-bold" style={{ color: '#0A3D2E' }}>{selectedInbox.fullName}</h2>
-                    <p className="text-sm text-gray-500">{selectedInbox.currentRole}</p>
-                  </div>
-                </div>
-                <button onClick={() => setSelectedInbox(null)} className="text-gray-400 hover:text-gray-600 text-xl font-light">×</button>
-              </div>
-
-              {/* Score */}
-              {selectedInbox.compositeScore && (
-                <div className="mb-5 p-4 rounded-xl flex items-center gap-4"
-                  style={{ background: selectedInbox.compositeScore >= 75 ? '#DCFCE7' : selectedInbox.compositeScore >= 55 ? '#FEF3C7' : '#FEE2E2' }}>
-                  <span className="text-3xl font-bold"
-                    style={{ color: selectedInbox.compositeScore >= 75 ? '#166534' : selectedInbox.compositeScore >= 55 ? '#92400E' : '#991B1B' }}>
-                    {selectedInbox.compositeScore}
-                  </span>
-                  <div>
-                    <p className="text-sm font-semibold text-gray-800">CV Screening Score</p>
-                    <p className="text-xs text-gray-500">Based on skills + experience match against job criteria</p>
-                  </div>
-                </div>
-              )}
-
-              {/* Score breakdown */}
-              <div className="space-y-3 mb-5">
-                {[
-                  { label: 'CV Match', value: selectedInbox.cvMatchScore, weight: '40%' },
-                  { label: 'Commitment (after WhatsApp)', value: selectedInbox.commitmentScore, weight: '40%' },
-                  { label: 'Salary Fit', value: selectedInbox.salaryFitScore, weight: '20%' },
-                ].map(({ label, value, weight }) => value ? (
-                  <div key={label}>
-                    <div className="flex justify-between text-xs mb-1">
-                      <span className="text-gray-600 font-medium">{label} <span className="text-gray-400">({weight})</span></span>
-                      <span className="font-bold" style={{ color: value >= 75 ? '#166534' : value >= 55 ? '#92400E' : '#991B1B' }}>{value}/100</span>
-                    </div>
-                    <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                      <div className="h-full rounded-full transition-all"
-                        style={{ width: `${value}%`, background: value >= 75 ? '#0A3D2E' : value >= 55 ? '#C9A84C' : '#EF4444' }} />
-                    </div>
-                  </div>
-                ) : null)}
-              </div>
-
-              {/* WhatsApp note */}
-              <div className="mb-4 p-3 rounded-lg text-xs" style={{ background: '#FDF6E3', color: '#92400E' }}>
-                <strong>Full composite score</strong> calculated after WhatsApp screening.
-                Commitment (40%) and confirmed salary fit added then.
-              </div>
-
-              {/* Skills evidence */}
-              {(selectedInbox.dataTags as any)?.evidence?.mustHaveSkills?.length > 0 && (
-                <div className="mb-5">
-                  <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Skills Match</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {((selectedInbox.dataTags as any)?.evidence?.mustHaveSkills || []).map((s: any, i: number) => (
-                      <span key={i} className="text-xs px-2 py-1 rounded-lg font-medium"
-                        style={{ background: s.found ? '#DCFCE7' : '#FEE2E2', color: s.found ? '#166534' : '#991B1B' }}>
-                        {s.found ? '✓' : '✗'} {s.skill}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Details */}
-              <div className="space-y-3 mb-6 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Experience</span>
-                  <span className="font-medium">{selectedInbox.yearsExperience ? `${selectedInbox.yearsExperience} years` : '—'}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Salary Expected</span>
-                  <span className="font-medium">{selectedInbox.salaryExpectation ? `AED ${selectedInbox.salaryExpectation.toLocaleString()}` : '—'}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Source</span>
-                  <span className="font-medium capitalize">{(selectedInbox.sourceChannel || 'unknown').replace(/_/g,' ')}</span>
-                </div>
-              </div>
-
-              {/* Actions */}
-              <div className="flex flex-col gap-2">
-                <button onClick={() => {
-                    api.patch(`/candidates/${selectedInbox.id}/status`, { pipelineStage: 'screening', sendWhatsApp: true })
-                    accept.mutate(selectedInbox.id)
-                    setSelectedInbox(null)
-                    toast.success(`WhatsApp invitation sent to ${selectedInbox.fullName}`)
-                  }}
-                  className="w-full py-2.5 text-sm font-semibold text-white rounded-xl flex items-center justify-center gap-2"
-                  style={{ background: '#0A3D2E' }}>
-                  💬 Invite to WhatsApp Screening
-                </button>
-                <div className="flex gap-2">
-                  <button onClick={() => { accept.mutate(selectedInbox.id); setSelectedInbox(null) }}
-                    className="flex-1 py-2 text-sm font-medium rounded-xl border-2 transition-all"
-                    style={{ borderColor: '#0A3D2E', color: '#0A3D2E' }}>
-                    + Add to Talent Pool
-                  </button>
-                  <button onClick={() => { reject.mutate(selectedInbox.id); setSelectedInbox(null) }}
-                    className="flex-1 py-2 text-sm font-medium rounded-xl border-2 border-red-200 text-red-600">
-                    ✗ Reject
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+        <CandidatePanel
+          candidateId={selectedInbox.id}
+          context="cv_inbox"
+          initialData={selectedInbox}
+          onClose={() => setSelectedInbox(null)}
+          onAddToPool={() => {
+            accept.mutate(selectedInbox.id)
+            setSelectedInbox(null)
+          }}
+          onStatusUpdate={() => qc.invalidateQueries({ queryKey: ['cv-inbox'] })}
+        />
       )}
+
+
     </div>
   )
 }
