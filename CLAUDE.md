@@ -146,31 +146,47 @@ One primary button per drawer, label follows the next stage: **"✅ Approve to L
 
 Plus 10 Cloud Architect pipeline candidates (Omar Farouk, Ahmed Al-Rashidi, Sarah Mitchell, etc.)
 
-## Shipped Today (2026-04-19) — Phase 6j + 6k
+## Shipped History
 
-### Phase 6j ✅ SHIPPED (v1.7.0) — WhatsApp Screening Simulation
-One-click simulate on the mock page fires 5 canned answers (60% strong / 25% mixed / 15% vague tone distribution). Claude evaluates each → full composite → aiRecommendation. Mock page retained as admin/demo override.
+### 2026-04-19 — Phase 6j + 6k
+**v1.7.0 — Phase 6j** WhatsApp Screening Simulation. One-click simulate fires 5 canned answers (60% strong / 25% mixed / 15% vague). Claude evaluates → full composite → aiRecommendation. Mock page retained as admin/demo override.
 
-### Phase 6k ✅ SHIPPED (v1.8.0) — Flow Correction + Single-Action Transitions
-- Applied = CV-only scoring (cvMatchScore only, commitment/salary/composite greyed until WhatsApp runs)
-- L1 entry triggers WhatsApp simulation automatically (async ~15-30s, fire-and-forget)
-- Unified button model: one "Approve to [Lx]" per stage. Applied→L1 is the only transition with a paid-Claude confirmation modal
-- Interview score fields in schema (`interviewTechnicalScore`, `interviewCultureScore` + matching notes) — Phase 7 UI
-- Kanban "🔄 Screening…" badge during async sim window, 3s poll interval
-- Migration: 17 existing candidates reset from `screening` → `applied`, composite zeroed, L1 recommendations backfilled via SQL
+**v1.8.0 — Phase 6k** Flow Correction + Single-Action Transitions. Applied = CV-only scoring. L1 entry auto-fires WhatsApp sim async (~15-30s). One "Approve to [Lx]" button per stage. Interview score fields landed (Phase 7 UI pending). Kanban "🔄 Screening…" badge during sim. Migration: 17 in-flight candidates reset, composite zeroed, L1 recommendations backfilled.
 
-## Tomorrow's Priorities
+### 2026-04-20 — Drawer unification + Dashboard fix + Analytics v1
+**Drawer unification (no tag)** One `CandidatePanel` component powering Talent Pool / CV Inbox / Pipeline via `context` prop. TP gold "Match for:" card is the canonical pre-screening score treatment. CV Inbox primary action aligned with Pipeline Applied (Approve to L1 + paid-Claude confirmation). Net -203 lines.
 
-### Priority 1: CandidatePanel drawer consistency
-**Problem**: Pipeline drawer (click kanban card) still shows a different score layout vs Talent Pool drawer. Post-Phase-6k the AI Recommendation block is wired in but the surrounding score section, skill-evidence chips, and work-experience layout don't match the Talent Pool drawer's cleaner structure.
-**Fix needed**: Align the two drawers on a single score section — CV Screening Score at top, skill evidence ✓/✗ chips, hard-filter result, full CV details below (Work Experience, Education, Certifications). Verify consistency at every entry point (CV Inbox, Talent Pool, Pipeline).
+**v1.9.0 — Dashboard KPIs aligned with Phase 6k + Awaiting Review KPI.** "In Screening" filter was pointing at the dead `screening` stage → always 0. Fixed to `shortlisted` + `conversationState=screening_q*`. WhatsApp Response Rate formula rewritten. New "Awaiting Review" KPI (applied/evaluated with aiRecommendation set). Two labeled rows: Action Items (Awaiting Review / In Screening / Shortlisted / Interviewing) and Performance (CVs Processed / Conversion Rate / WhatsApp Response Rate / Talent Pool Size).
 
-### Priority 2: Dashboard real-time refresh
-**Problem**: Dashboard KPIs stale after Talent Pool invites / stage changes — needs hard reload.
-**Fix needed**: TanStack Query invalidation on mutations. Invalidate `['dashboard-stats']` and `['recent-activity']` from every mutation that changes candidate count or stage (pool invite, PATCH /status, scoring completion). Keep `refetchInterval` as a fallback but don't rely on it.
+**v1.10.0 — Analytics v1.** Owner-facing performance rollup at `/analytics`. Period pills (30/90/180/365d, gold active), optional job-filter dropdown. 4 KPI cards (Active Jobs agency-wide, Avg Time to Fill, Hire Rate, Cost per Hire as "Coming Soon" pill). Pipeline Funnel with count + %-of-applied labels + drop-off strip. Time-at-Stage horizontal bars coloured green <3d / amber 3-7d / red 7d+. Source Performance table. Recruiter Performance as Phase 7 stub. Empty states per chart with sensible thresholds.
 
-### Priority 3: BRD v5.5 (opportunistic)
-If product decisions emerge during the day worth versioning, create v5.5. Otherwise hold — v5.4 documents current state accurately.
+## Tomorrow's Open Items
+
+### Reema chatbot — Phase 7 P3 candidate
+Internal agency assistant idea mentioned in planning. Needs scoping: who is Reema for (recruiter query assistant? candidate-facing?), what capabilities, where she lives in the UI. Pushed to Phase 7 pending product brief. **Ask Saad for the spec** before any code.
+
+### QA Test Plan v1.0 needs Module 11 for Analytics
+Saad maintains the QA Test Plan document separately (not in this repo's `docs/` folder as of 2026-04-20). Analytics v1 shipped today with no test module covering it. **When next working with Saad, confirm where the plan lives and either author Module 11 or hand him the test cases to paste in.** Rough coverage for Module 11:
+- Period filter changes counts across all charts
+- Job filter narrows everything except Active Jobs
+- Empty states trigger at the right thresholds (applied<5, transitions<3, sources<2)
+- Responsive layout — 2x2 KPI grid on mobile, 1x4 on desktop
+- Cost per Hire shows "Coming Soon" pill (not `$0`)
+
+### Phase 7 sequencing decision
+Phase 7 scope list has been accumulating without ordering. Candidates include:
+- 360dialog real WhatsApp integration (replaces mock)
+- L2 / L3 / Final interview feedback UI (schema landed in v1.8.0)
+- Offer model + Cost per Hire billing wire-up
+- Reema chatbot (see above)
+- JD generator prompt tuning (caps must-haves at 3-5, aligns with required_skills)
+- 48h WhatsApp non-response timeout + auto-reminder
+- Multi-user agencies + recruiter attribution
+
+**Action for tomorrow:** get Saad's ordering. 360dialog is the biggest unlock (enables real pilots). Interview UI unblocks the funnel past L1. JD generator fix + timeout are low-cost correctness wins. Reema + multi-user are higher-scope platform bets. No coding until sequencing is locked.
+
+### Deferred from yesterday (still valid)
+- BRD v5.5 — only if product decisions emerge. v5.4 documents current state.
 
 ## Known Gotchas
 - **Docker PATH**: `export PATH="$PATH:/Applications/Docker.app/Contents/Resources/bin"` before any `docker` command
