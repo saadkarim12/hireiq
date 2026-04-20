@@ -15,7 +15,7 @@
 //   - L1+ post-screening       -> full 4-circle breakdown (Composite, CV Match, Commitment, Salary Fit)
 
 import { Fragment, useState } from 'react'
-import { useQuery, useMutation } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { candidatesApi } from '@/api/candidates'
 import { api } from '@/api/client'
 import { ScoreBadge } from './ScoreBadge'
@@ -78,6 +78,7 @@ export function CandidatePanel({
   const [showApproveConfirm, setShowApproveConfirm] = useState(false)
   const [rejectionReason, setRejectionReason] = useState<RejectionReason>('other')
   const [recruiterNote, setRecruiterNote] = useState('')
+  const queryClient = useQueryClient()
 
   // Fresh data. initialData gives instant paint — Query refreshes in background without blanking the UI
   // (TanStack keeps previous data during refetch by default, so there's no flicker).
@@ -92,6 +93,9 @@ export function CandidatePanel({
       candidatesApi.updateStatus(candidateId, update),
     onSuccess: () => {
       toast.success('Candidate status updated')
+      // Any stage change affects dashboard KPIs (In Screening, Shortlisted, Conversion Rate, Recent Activity).
+      // One call invalidates all four dashboard queries via the shared 'dashboard' prefix.
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
       onStatusUpdate?.()
       if (showRejectModal) setShowRejectModal(false)
       if (showApproveConfirm) setShowApproveConfirm(false)

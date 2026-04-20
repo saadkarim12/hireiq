@@ -115,12 +115,20 @@ export default function CvInboxPage() {
 
   const accept = useMutation({
     mutationFn: (id: string) => api.patch(`/candidates/${id}/status`, { pipelineStage: 'evaluated' }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['cv-inbox'] }); toast.success('Moved to Talent Pool') },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['cv-inbox'] })
+      qc.invalidateQueries({ queryKey: ['dashboard'] })
+      toast.success('Moved to Talent Pool')
+    },
   })
 
   const reject = useMutation({
     mutationFn: (id: string) => api.patch(`/candidates/${id}/status`, { pipelineStage: 'rejected' }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['cv-inbox'] }); toast.success('CV rejected') },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['cv-inbox'] })
+      qc.invalidateQueries({ queryKey: ['dashboard'] })
+      toast.success('CV rejected')
+    },
   })
 
   const acceptAll = async () => {
@@ -128,6 +136,7 @@ export default function CvInboxPage() {
       await api.patch(`/candidates/${c.id}/status`, { pipelineStage: 'evaluated' })
     }
     qc.invalidateQueries({ queryKey: ['cv-inbox'] })
+    qc.invalidateQueries({ queryKey: ['dashboard'] })
     toast.success(`${inboxCandidates.length} CVs moved to Talent Pool`)
   }
 
@@ -366,7 +375,10 @@ export default function CvInboxPage() {
             accept.mutate(selectedInbox.id)
             setSelectedInbox(null)
           }}
-          onStatusUpdate={() => qc.invalidateQueries({ queryKey: ['cv-inbox'] })}
+          onStatusUpdate={() => {
+            qc.invalidateQueries({ queryKey: ['cv-inbox'] })
+            qc.invalidateQueries({ queryKey: ['dashboard'] })
+          }}
         />
       )}
 

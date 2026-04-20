@@ -24,7 +24,10 @@ export default function CvReviewPage({ params }: PageProps) {
   const updateStatus = useMutation({
     mutationFn: ({ id, stage }: { id: string; stage: string }) =>
       api.patch(`/candidates/${id}/status`, { pipelineStage: stage }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['cv-review', jobId] }); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['cv-review', jobId] })
+      qc.invalidateQueries({ queryKey: ['dashboard'] })
+    },
   })
 
   const job = jobRes?.data?.data

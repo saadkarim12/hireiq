@@ -21,6 +21,7 @@ function ScoreBadge({ score }: { score: number | null }) {
 
 export default function TalentPoolPage() {
   const router = useRouter()
+  const qc = useQueryClient()
   const [selectedJobId, setSelectedJobId] = useState('')
   const [search, setSearch] = useState('')
   const [filterSource, setFilterSource] = useState('')
@@ -125,6 +126,7 @@ export default function TalentPoolPage() {
       if (data.success) {
         toast.success(`${candidate.fullName} added to pipeline — review in Applied column, then invite to WhatsApp`)
         setSelectedCandidate(null)
+        qc.invalidateQueries({ queryKey: ['dashboard'] })
         // Refresh the matched candidates list to remove the just-invited one
         if (selectedJobId) {
           const refresh = await api.get<any[]>(`/jobs/${selectedJobId}/talent-matches?minScore=0`)

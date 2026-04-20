@@ -62,6 +62,7 @@ export default function PipelinePage({ params }: PageProps) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['job-candidates', id] })
       queryClient.invalidateQueries({ queryKey: ['pipeline-counts', id] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
     },
     onError: () => toast.error('Failed to update candidate status'),
   })
@@ -287,6 +288,7 @@ ${job.locationCountry === 'AE' ? '#UAEJobs #DubaiJobs #AbuDhabiJobs' : '#SaudiJo
           onStatusUpdate={() => {
             queryClient.invalidateQueries({ queryKey: ['job-candidates', id] })
             queryClient.invalidateQueries({ queryKey: ['pipeline-counts', id] })
+            queryClient.invalidateQueries({ queryKey: ['dashboard'] })
           }}
         />
       )}

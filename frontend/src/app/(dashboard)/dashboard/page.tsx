@@ -44,26 +44,28 @@ export default function DashboardPage() {
   const router = useRouter()
   const [period, setPeriod] = useState(30)
 
+  // Structured queryKeys so any mutation can invalidate the whole dashboard
+  // with a single call: queryClient.invalidateQueries({ queryKey: ['dashboard'] }).
   const { data: jobsRes } = useQuery({
-    queryKey: ['dashboard-jobs'],
+    queryKey: ['dashboard', 'jobs'],
     queryFn: () => api.get<any[]>('/jobs'),
     refetchInterval: 60000,
   })
 
   const { data: candidatesRes } = useQuery({
-    queryKey: ['dashboard-candidates', period],
+    queryKey: ['dashboard', 'candidates', period],
     queryFn: () => api.get<any[]>(`/talent-pool/search?maxDays=${period}`),
     refetchInterval: 60000,
   })
 
   const { data: recentRes } = useQuery({
-    queryKey: ['dashboard-recent'],
+    queryKey: ['dashboard', 'recent'],
     queryFn: () => api.get<any[]>('/talent-pool/search?maxDays=7'),
     refetchInterval: 30000,
   })
 
   const { data: poolRes } = useQuery({
-    queryKey: ['dashboard-pool'],
+    queryKey: ['dashboard', 'pool'],
     queryFn: () => api.get<any[]>('/talent-pool/search?maxDays=365'),
   })
 
