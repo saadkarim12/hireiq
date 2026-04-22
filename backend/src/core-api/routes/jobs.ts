@@ -125,8 +125,22 @@ jobsRouter.post('/', async (req: AuthRequest, res) => {
       res.status(201).json({ success: true, data: { ...job, extractedCriteria: null, screeningQuestions: [] } })
     }
   } catch (err: any) {
-    logger.error('Create job error', { err })
-    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to create job' } })
+    const detail = err?.message || 'Unknown error'
+    logger.error('Create job error', {
+      name:    err?.name,
+      message: detail,
+      stack:   err?.stack?.split('\n').slice(0, 3).join(' | '),
+    })
+    // Prisma validation = client payload issue → 400 with the real message.
+    // Anything else stays a 500 with a generic message.
+    const isValidation = err?.name === 'PrismaClientValidationError' || err?.name === 'PrismaClientKnownRequestError'
+    res.status(isValidation ? 400 : 500).json({
+      success: false,
+      error: {
+        code:    isValidation ? 'VALIDATION' : 'INTERNAL_ERROR',
+        message: isValidation ? detail.slice(0, 400) : 'Failed to create job',
+      },
+    })
   }
 })
 

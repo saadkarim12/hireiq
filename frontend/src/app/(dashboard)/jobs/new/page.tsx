@@ -249,7 +249,13 @@ export default function NewJobPage() {
 
       setStep(4)
     } catch (err: any) {
-      toast.error('Failed to create job. Check that backend is running.')
+      // Surface the real backend message when present so recruiters can self-serve
+      // (e.g. "Argument `salaryMin` is missing"). Generic fallback only for true
+      // network failures where there's no response at all.
+      const backendMsg = err?.response?.data?.error?.message
+      toast.error(backendMsg
+        ? `Couldn't create job — ${backendMsg}`
+        : 'Failed to create job. Check that backend is running.')
       console.error(err)
     } finally {
       setIsGeneratingQuestions(false)
