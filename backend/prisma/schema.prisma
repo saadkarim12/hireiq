@@ -49,7 +49,12 @@ enum JobType {
 enum Currency {
   AED
   SAR
+  BHD
+  KWD
+  QAR
+  OMR
   USD
+  GBP
 }
 
 enum PipelineStage {
