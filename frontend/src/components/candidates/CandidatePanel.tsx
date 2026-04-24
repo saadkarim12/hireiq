@@ -18,6 +18,7 @@ import { Fragment, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { candidatesApi } from '@/api/candidates'
 import { api } from '@/api/client'
+import apiClient from '@/api/client'
 import { ScoreBadge } from './ScoreBadge'
 import { PipelineStageBadge } from './PipelineStageBadge'
 import { AiRecommendationBadge } from './AiRecommendationBadge'
@@ -78,6 +79,7 @@ export function CandidatePanel({
   const [showApproveConfirm, setShowApproveConfirm] = useState(false)
   const [rejectionReason, setRejectionReason] = useState<RejectionReason>('other')
   const [recruiterNote, setRecruiterNote] = useState('')
+  const [aiRecExpanded, setAiRecExpanded] = useState(false)
   const queryClient = useQueryClient()
 
   // Fresh data. initialData gives instant paint — Query refreshes in background without blanking the UI
@@ -140,20 +142,48 @@ export function CandidatePanel({
   const education: any = candidate?.cvStructured?.education
   const certifications: any[] = candidate?.cvStructured?.certifications || []
 
-  // TP shows a "Download CV" — make it available everywhere
-  const cvDownloadUrl = (candidate as any)?.cvPreviewUrl || (candidate as any)?.cvFileUrl
-
+  // 3.10.a — Download CV always available. Backend synthesises a text CV from
+  // cvStructured regardless of whether the original PDF is persisted. Blob
+  // response + object URL + native browser download.
   const handleDownloadCV = async () => {
     if (!candidate) return
     try {
-      const res = await api.get(`/candidates/${candidate.id}/cv-download`)
-      const url = (res.data as any)?.data?.url
-      if (url) window.open(url, '_blank')
-      else toast.error('CV download unavailable')
+      const res = await apiClient.get(`/candidates/${candidate.id}/cv-download`, { responseType: 'blob' })
+      const blob = new Blob([res.data], { type: (res.headers?.['content-type'] as string) || 'text/plain' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${(candidate.fullName || 'candidate').replace(/[^a-z0-9]/gi, '_')}_CV.txt`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
     } catch {
       toast.error('CV download failed')
     }
   }
+
+  // 8.2.a — Click-to-expand AI Recommendation
+  // Maps the stored aiRecommendationStage to a short "X → Y" human label.
+  const stageTransitionLabel = (s: string | null | undefined) =>
+    s === 'l1_cv_screened'  ? 'Applied → L1' :
+    s === 'l2_wa_screened'  ? 'L1 → L2' :
+    s === 'l3_interviewed'  ? 'L2 → L3' :
+    s === 'final_shortlist' ? 'L3 → Final' :
+    s === 'hired'           ? 'Final → Hired' : ''
+
+  // 3.9.a — decode the base64-encoded WhatsApp number for display. Graceful
+  // on malformed input (some pre-Phase-6k seed rows have non-decodable values).
+  const whatsappNumber = (() => {
+    const enc = (candidate as any)?.waNumberEncrypted
+    if (!enc || typeof enc !== 'string') return null
+    try {
+      const decoded = atob(enc)
+      // sanity: WhatsApp numbers always start with + and have 10+ digits
+      if (/^\+?\d{8,}$/.test(decoded.trim())) return decoded.trim()
+      return null
+    } catch { return null }
+  })()
 
   // Pipeline uses tabs; TP and CV Inbox use a single scrolling column.
   const useTabs = context === 'pipeline'
@@ -294,26 +324,59 @@ export function CandidatePanel({
               </div>
             )}
 
-            {/* AI Recommendation */}
-            <div className="mt-3 bg-white border border-gray-200 rounded-lg px-3 py-2.5">
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2 min-w-0">
-                  <AiRecommendationBadge
-                    recommendation={(candidate as any).aiRecommendation ?? null}
-                    pipelineStage={candidate.pipelineStage}
-                    size="md"
-                  />
-                  {(candidate as any).aiRecommendationReason && (
-                    <p className="text-xs text-gray-600 truncate">
-                      {(candidate as any).aiRecommendationReason}
+            {/* AI Recommendation — click to expand (8.2.a) */}
+            {(() => {
+              const reason: string | undefined = (candidate as any).aiRecommendationReason
+              const recStage: string | undefined = (candidate as any).aiRecommendationStage
+              const hasReason = !!reason
+              const transitionLabel = stageTransitionLabel(recStage)
+
+              return (
+                <button
+                  type="button"
+                  onClick={() => hasReason && setAiRecExpanded(v => !v)}
+                  disabled={!hasReason}
+                  className={clsx(
+                    'mt-3 w-full bg-white border border-gray-200 rounded-lg px-3 py-2.5 text-left transition-colors',
+                    hasReason && 'hover:bg-gray-50 cursor-pointer',
+                    !hasReason && 'cursor-default',
+                  )}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-start gap-2 min-w-0 flex-1">
+                      <AiRecommendationBadge
+                        recommendation={(candidate as any).aiRecommendation ?? null}
+                        pipelineStage={candidate.pipelineStage}
+                        size="md"
+                      />
+                      {hasReason && (
+                        <p className={clsx(
+                          'text-xs text-gray-600',
+                          aiRecExpanded ? 'whitespace-normal' : 'truncate',
+                        )}>
+                          {reason}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <span className="text-[10px] uppercase tracking-wide text-gray-400">
+                        Recruiter decides
+                      </span>
+                      {hasReason && (
+                        <span className="text-gray-400 text-xs" aria-hidden>
+                          {aiRecExpanded ? '▾' : '▸'}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  {aiRecExpanded && transitionLabel && (
+                    <p className="text-[10px] uppercase tracking-wide text-gray-400 mt-2 pl-1">
+                      For: {transitionLabel}
                     </p>
                   )}
-                </div>
-                <span className="text-[10px] uppercase tracking-wide text-gray-400 flex-shrink-0">
-                  Recruiter decides
-                </span>
-              </div>
-            </div>
+                </button>
+              )
+            })()}
           </div>
         )}
 
@@ -358,6 +421,7 @@ export function CandidatePanel({
                         { label: 'Visa Status', value: candidate.visaStatus || 'Not stated' },
                         { label: 'Experience', value: candidate.yearsExperience != null ? `${candidate.yearsExperience} years` : 'Unknown' },
                         { label: 'Email', value: candidate.email || 'Not provided' },
+                        { label: 'WhatsApp', value: whatsappNumber || '—' },
                         { label: 'Source', value: (candidate.dataTags as any)?.sourceChannel || candidate.sourceChannel || 'Direct' },
                       ].map(({ label, value }) => (
                         <div key={label} className="bg-gray-50 rounded-lg p-3">
@@ -422,7 +486,7 @@ export function CandidatePanel({
                   {/* Job History — TP only */}
                   {context === 'talent_pool' && (
                     <div>
-                      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Applied Jobs</p>
+                      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Application History</p>
                       <div className="space-y-2">
                         <div className="p-3 rounded-xl border border-gray-100">
                           <div className="flex items-center justify-between">
@@ -521,11 +585,9 @@ export function CandidatePanel({
                     Select a job using "Match to job" above to invite this candidate
                   </div>
                 )}
-                {cvDownloadUrl && (
-                  <button onClick={handleDownloadCV} className="w-full btn-secondary text-sm gap-1.5">
-                    <DocumentArrowDownIcon className="w-4 h-4" /> Download CV
-                  </button>
-                )}
+                <button onClick={handleDownloadCV} className="w-full btn-secondary text-sm gap-1.5">
+                  <DocumentArrowDownIcon className="w-4 h-4" /> Download CV
+                </button>
               </div>
             ) : context === 'cv_inbox' ? (
               <div className="space-y-2">
@@ -551,11 +613,9 @@ export function CandidatePanel({
                     ✗ Reject
                   </button>
                 </div>
-                {cvDownloadUrl && (
-                  <button onClick={handleDownloadCV} className="w-full btn-secondary text-sm gap-1.5">
-                    <DocumentArrowDownIcon className="w-4 h-4" /> Download CV
-                  </button>
-                )}
+                <button onClick={handleDownloadCV} className="w-full btn-secondary text-sm gap-1.5">
+                  <DocumentArrowDownIcon className="w-4 h-4" /> Download CV
+                </button>
               </div>
             ) : (
               // Pipeline
@@ -591,11 +651,9 @@ export function CandidatePanel({
                     <HandThumbDownIcon className="w-4 h-4" />
                   </button>
                 </div>
-                {cvDownloadUrl && (
-                  <button onClick={handleDownloadCV} className="w-full btn-secondary text-sm gap-1.5">
-                    <DocumentArrowDownIcon className="w-4 h-4" /> Download CV
-                  </button>
-                )}
+                <button onClick={handleDownloadCV} className="w-full btn-secondary text-sm gap-1.5">
+                  <DocumentArrowDownIcon className="w-4 h-4" /> Download CV
+                </button>
               </div>
             )}
           </div>
