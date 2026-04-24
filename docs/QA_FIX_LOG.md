@@ -111,3 +111,63 @@ Saad's note: *"Can we give an option to recruiter to add custom questions"* — 
 - **Follow-up (Phase 7, not today)**: auto-translate via Claude at save-time, OR conversation-handler fallback to English when Arabic is empty.
 - **Effort**: 5 min.
 - **Status**: agreed.
+
+---
+
+## Test 3.9 — CV Inbox Drawer Content (QA rating: Pass)
+
+Saad's note: *"With email adress can we have a placeholder for whatsapp number."*
+
+### 3.9.a — Add WhatsApp number to the Key Details grid across all drawer contexts
+- **Issue**: Drawer's Key Details grid shows Email but not WhatsApp number. WhatsApp is the primary contact channel for this product; recruiters need it visible alongside Email.
+- **Data path**: `candidate.waNumberEncrypted` (base64-encoded plaintext) is already in the candidate GET response. Just needs client-side decode + display.
+- **Fix**: In `frontend/src/components/candidates/CandidatePanel.tsx` Key Details grid, add a "WhatsApp" field. Decode `atob(candidate.waNumberEncrypted)` at render time. Show raw international format (e.g. `+971501234567`). Placeholder `—` when empty (CV Inbox candidates usually won't have it yet — populated once WhatsApp screening runs).
+- **Decision**: full number display (not masked, not click-to-reveal). Agency recruiters are the intended audience and WhatsApp is the primary contact channel.
+- **Apply to all contexts**: Talent Pool, CV Inbox, Pipeline. Single fix covers all three.
+- **Effort**: 15 min.
+- **Status**: agreed.
+
+---
+
+## Test 3.10 — CV Inbox Action Buttons (QA rating: Partial)
+
+Saad's note: *"Download CV is not there"*
+
+Investigation showed two overlapping bugs:
+1. **Button hidden by conditional** — `CandidatePanel.tsx` wraps Download CV in `{cvDownloadUrl && ...}`. CV Inbox candidates have `cvPreviewUrl` and `cvFileUrl` both null (the `bulk-upload.ts` flow uses `multer.memoryStorage()` and never persists the original PDF), so the button never renders.
+2. **Click handler broken** — Even if the button rendered, `handleDownloadCV` expects `res.data.data.url` but the backend endpoint `/candidates/:id/cv-download` returns raw text bytes. Clicking would toast "CV download unavailable".
+
+### 3.10.a — Always show Download CV + fix click handler (ship today)
+- **Fix**: Remove the `{cvDownloadUrl && ...}` conditional — the backend endpoint always works because it synthesizes a text CV from `cvStructured` regardless of whether the original PDF is stored. Rewrite `handleDownloadCV` to treat the response as a blob, build an object URL, trigger a native browser download.
+- **Affects**: All three drawer contexts (Talent Pool, CV Inbox, Pipeline).
+- **Effort**: 15 min.
+- **Status**: agreed.
+
+### 3.10.b — Persist original PDF during CV Inbox upload (deferred to Phase 7)
+- **Issue**: For CV Inbox candidates, Download returns a HireIQ-generated plain-text reconstruction instead of the original PDF with its formatting. The upload pipeline uses in-memory multer, file is GC'd after parsing.
+- **Fix**: Switch `multer.memoryStorage()` → `multer.diskStorage()` with a local uploads directory (or Azure Blob for production). Set `cvFileUrl` on the candidate record. Update `/cv-download` to stream the original file when `cvFileUrl` is present; keep text synthesis as fallback.
+- **Effort**: 1-2h.
+- **Status**: deferred (Phase 7 — part of production-readiness / cloud storage work).
+
+---
+
+## Test 4.3 — Talent Pool Job Dropdown (QA rating: Fail)
+
+Expected: *"Active jobs listed (no duplicates)."*
+
+Investigation showed the "duplicates" are not a code bug — the backend returns all active jobs and the frontend renders them faithfully. The actual issue is DB pollution from test runs: **12 active job rows for 3 distinct job concepts** (5× "Workflow Test — Finance Manager", 5× "Enterprise Architect", 2× "Cloud Architect"). Labels all read identical to the recruiter.
+
+### 4.3.a — Soft-delete the duplicate test jobs (one-time data cleanup)
+- **Fix**: Set `status='closed'` on the older copies of each (title, hiringCompany) combo. Keep the most recent one + any older copies that have real candidate history attached (don't orphan candidates). Closed jobs are excluded from the active dropdown but remain queryable for audit/history purposes.
+- **Effort**: 15 min + SQL to pick which to close.
+- **Status**: agreed.
+
+### 4.3.b — Disambiguate dropdown labels with creation date
+- **Fix**: In `frontend/src/app/(dashboard)/talent-pool/page.tsx:206` and any other place the job dropdown renders (e.g. Analytics page job filter), append creation date: `"Enterprise Architect — DigyCorp · 10 Apr"`. Prevents recurrence of the "identical labels" confusion when legitimate duplicates exist in production.
+- **Effort**: 5 min.
+- **Status**: agreed.
+
+### 4.3.c — DB uniqueness guard + duplicate warning in wizard (deferred to Phase 7)
+- **Idea**: Add a constraint or soft-warning when recruiter tries to create a second active job with the same (title, hiringCompany). Prevents future pollution at the point of creation.
+- **Effort**: 1h.
+- **Status**: deferred (Phase 7 hardening pass).
