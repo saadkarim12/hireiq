@@ -203,7 +203,10 @@ export default function TalentPoolPage() {
           className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 outline-none focus:border-emerald-400">
           <option value="">— Select a job to find matches —</option>
           {jobs.filter((j: any, idx: number, arr: any[]) => arr.findIndex((x: any) => x.id === j.id) === idx).map((j: any) => (
-            <option key={j.id} value={j.id}>{j.title} — {j.hiringCompany}</option>
+            <option key={j.id} value={j.id}>
+              {j.title} — {j.hiringCompany}
+              {j.createdAt ? ` · ${new Date(j.createdAt).toLocaleDateString('en-GB', { day:'numeric', month:'short' })}` : ''}
+            </option>
           ))}
         </select>
         {selectedJobId && (

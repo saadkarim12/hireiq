@@ -47,7 +47,7 @@ export function Sidebar() {
         <div>
           <div className="text-white font-bold text-lg leading-none tracking-tight">HireIQ</div>
           <div className="text-brand-gold text-xs font-medium mt-0.5 opacity-80">
-            {session?.user?.agencyId ? 'Agency Platform' : 'Loading...'}
+            Agency Platform
           </div>
         </div>
       </div>

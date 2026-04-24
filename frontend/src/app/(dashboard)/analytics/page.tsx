@@ -108,6 +108,7 @@ export default function AnalyticsPage() {
             {jobs.map((j: any) => (
               <option key={j.id} value={j.id}>
                 {j.title}{j.hiringCompany ? ` — ${j.hiringCompany}` : ''}
+                {j.createdAt ? ` · ${new Date(j.createdAt).toLocaleDateString('en-GB', { day:'numeric', month:'short' })}` : ''}
               </option>
             ))}
           </select>

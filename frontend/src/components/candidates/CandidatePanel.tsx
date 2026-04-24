@@ -261,6 +261,16 @@ export function CandidatePanel({
                   </div>
                 )}
               </div>
+            ) : (s('compositeScore') == null && s('cvMatchScore') == null &&
+                 s('commitmentScore') == null && s('salaryFitScore') == null) ? (
+              // 7.6.a.i — L1+ candidate with no scores at all. Legacy data from before
+              // automated scoring was available. Show an honest card instead of four dashes.
+              <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-5 text-center">
+                <p className="text-sm text-gray-600 font-medium">Scores not captured</p>
+                <p className="text-xs text-gray-400 mt-1">
+                  This candidate was promoted before automated scoring was available.
+                </p>
+              </div>
             ) : (
               // L1+ post-screening: full 4-circle breakdown
               <div className="flex items-center justify-around">
@@ -602,10 +612,10 @@ export function CandidatePanel({
               <h3 className="text-base font-bold text-brand-navy">Approve to L1?</h3>
             </div>
             <p className="text-sm text-gray-700">
-              Approve <span className="font-semibold">{fullName}</span> to L1? This will trigger WhatsApp screening (5 personalised questions, ~$0.06 in API costs).
+              Approve <span className="font-semibold">{fullName}</span> to Level 1? This starts WhatsApp screening — 5 personalised questions will be sent and evaluated by AI.
             </p>
             <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-800">
-              ⚠️ Each screening uses paid Claude API calls.
+              ⚠️ Once started, screening is irreversible — the candidate receives the 5 questions immediately.
             </div>
             <div className="flex gap-2 pt-2">
               <button onClick={() => setShowApproveConfirm(false)} className="flex-1 btn-secondary text-sm">Cancel</button>

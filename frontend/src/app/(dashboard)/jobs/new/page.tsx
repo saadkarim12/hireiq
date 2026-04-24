@@ -38,8 +38,6 @@ const schema = z.object({
   // Step 3
   mustHaveSkills:       z.array(z.string()),
   niceToHaveSkills:     z.array(z.string()),
-  autoApproveThreshold: z.number().min(1).max(100),
-  autoRejectThreshold:  z.number().min(1).max(100),
   // Step 4
   screeningQuestions:   z.array(z.object({
     id: z.string(),
@@ -72,8 +70,6 @@ const COUNTRIES = [
   { code:'KW', label:'🇰🇼 Kuwait' },
   { code:'QA', label:'🇶🇦 Qatar' },
   { code:'OM', label:'🇴🇲 Oman' },
-  { code:'GB', label:'🇬🇧 UK' },
-  { code:'US', label:'🇺🇸 USA' },
 ]
 
 // ── STEP INDICATOR ────────────────────────────────────────────────────────────
@@ -155,8 +151,7 @@ export default function NewJobPage() {
       minExperienceYears: 3, salaryMin: 0, salaryMax: 0,
       requiredLanguages: ['English'], requiredSkills: [], preferredSkills: [],
       mustHaveSkills: [], niceToHaveSkills: [],
-      autoApproveThreshold: 75, autoRejectThreshold: 40,
-      jdMode: 'builder', screeningQuestions: [],
+      jdMode: 'paste', screeningQuestions: [],
     },
   })
 
@@ -225,7 +220,6 @@ export default function NewJobPage() {
         minExperienceYears: v.minExperienceYears, requiredLanguages: v.requiredLanguages,
         requiredSkills: v.requiredSkills, preferredSkills: v.preferredSkills,
         mustHaveSkills: v.mustHaveSkills, niceToHaveSkills: v.niceToHaveSkills,
-        autoApproveThreshold: v.autoApproveThreshold, autoRejectThreshold: v.autoRejectThreshold,
         jdText,
       })
 
@@ -484,15 +478,15 @@ export default function NewJobPage() {
         <div className="flex items-center justify-between mb-5">
           <h2 className="text-lg font-semibold" style={{color:'#0A3D2E'}}>Job Description</h2>
           <div className="flex rounded-xl border border-gray-200 overflow-hidden text-xs">
-            <button onClick={() => setValue('jdMode','builder')}
-              className={`px-4 py-2 font-medium transition-all ${vals.jdMode === 'builder' ? 'text-white' : 'text-gray-500 hover:bg-gray-50'}`}
-              style={vals.jdMode === 'builder' ? {background:'#0A3D2E'} : {}}>
-              ✨ AI Builder
-            </button>
             <button onClick={() => setValue('jdMode','paste')}
               className={`px-4 py-2 font-medium transition-all ${vals.jdMode === 'paste' ? 'text-white' : 'text-gray-500 hover:bg-gray-50'}`}
               style={vals.jdMode === 'paste' ? {background:'#0A3D2E'} : {}}>
               📋 Paste JD
+            </button>
+            <button onClick={() => setValue('jdMode','builder')}
+              className={`px-4 py-2 font-medium transition-all ${vals.jdMode === 'builder' ? 'text-white' : 'text-gray-500 hover:bg-gray-50'}`}
+              style={vals.jdMode === 'builder' ? {background:'#0A3D2E'} : {}}>
+              ✨ AI Builder
             </button>
           </div>
         </div>
@@ -554,7 +548,13 @@ export default function NewJobPage() {
             <textarea {...register('jdText')} rows={16}
               className={inputCls + ' resize-none'}
               placeholder="Paste the full job description here. AI will extract screening criteria automatically." />
-            <p className="text-xs text-gray-400 mt-1">Minimum 100 characters</p>
+            <div className="flex items-center justify-between mt-1">
+              <p className="text-xs text-gray-400">Minimum 100 characters</p>
+              <button type="button" onClick={() => setValue('jdMode','builder')}
+                className="text-xs font-medium hover:underline" style={{color:'#0A3D2E'}}>
+                Don&apos;t have a JD yet? Use AI Builder →
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -660,38 +660,34 @@ export default function NewJobPage() {
 
         <div>
           <div className="flex items-center gap-2 mb-4">
-            <h3 className="text-sm font-semibold text-gray-700">Automation Thresholds</h3>
-            <span className="text-xs text-gray-400">click numbers to adjust</span>
+            <h3 className="text-sm font-semibold text-gray-700">AI Recommendation Bands</h3>
+            <span className="text-xs text-gray-400">how the AI flags candidates for your review</span>
           </div>
           <div className="grid grid-cols-3 gap-3">
             <div className="rounded-xl p-4 text-center border-2" style={{background:"#F0FDF4",borderColor:"#BBF7D0"}}>
-              <div className="text-xs font-medium mb-2" style={{color:"#166534"}}>Score ≥</div>
-              <input type="number" value={vals.autoApproveThreshold}
-                onChange={e => setValue("autoApproveThreshold", Math.max(parseInt(e.target.value)||75, (vals.autoRejectThreshold||40)+1))}
-                min={1} max={100} className="w-16 text-center text-2xl font-bold bg-transparent border-b-2 outline-none" style={{color:"#166534",borderColor:"#86EFAC"}} />
-              <div className="text-xs font-semibold mt-2" style={{color:"#166534"}}>Auto-approve</div>
-              <div className="text-xs text-gray-400 mt-1">WhatsApp immediately</div>
+              <div className="text-xs font-medium mb-2" style={{color:"#166534"}}>Score ≥ 75</div>
+              <div className="text-2xl">✅</div>
+              <div className="text-xs font-semibold mt-2" style={{color:"#166534"}}>AI: Advance</div>
+              <div className="text-xs text-gray-500 mt-1">Strong match for this role</div>
             </div>
             <div className="rounded-xl p-4 text-center border-2" style={{background:"#FFFBEB",borderColor:"#FDE68A"}}>
-              <div className="text-xs font-medium mb-2" style={{color:"#92400E"}}>Score</div>
-              <div className="text-2xl font-bold" style={{color:"#92400E"}}>{vals.autoRejectThreshold}–{(vals.autoApproveThreshold||75)-1}</div>
-              <div className="text-xs font-semibold mt-2" style={{color:"#92400E"}}>Amber Zone</div>
-              <div className="text-xs text-gray-400 mt-1">CV Review Dashboard</div>
+              <div className="text-xs font-medium mb-2" style={{color:"#92400E"}}>Score 55–74</div>
+              <div className="text-2xl">⚠️</div>
+              <div className="text-xs font-semibold mt-2" style={{color:"#92400E"}}>AI: Hold</div>
+              <div className="text-xs text-gray-500 mt-1">Borderline — review carefully</div>
             </div>
             <div className="rounded-xl p-4 text-center border-2" style={{background:"#FFF1F2",borderColor:"#FECDD3"}}>
-              <div className="text-xs font-medium mb-2" style={{color:"#991B1B"}}>Score &lt;</div>
-              <input type="number" value={vals.autoRejectThreshold}
-                onChange={e => setValue("autoRejectThreshold", Math.min(parseInt(e.target.value)||40, (vals.autoApproveThreshold||75)-1))}
-                min={1} max={100} className="w-16 text-center text-2xl font-bold bg-transparent border-b-2 outline-none" style={{color:"#991B1B",borderColor:"#FCA5A5"}} />
-              <div className="text-xs font-semibold mt-2" style={{color:"#991B1B"}}>Auto-reject</div>
-              <div className="text-xs text-gray-400 mt-1">Rejection email sent</div>
+              <div className="text-xs font-medium mb-2" style={{color:"#991B1B"}}>Score &lt; 55</div>
+              <div className="text-2xl">❌</div>
+              <div className="text-xs font-semibold mt-2" style={{color:"#991B1B"}}>AI: Reject</div>
+              <div className="text-xs text-gray-500 mt-1">Weak match for this role</div>
             </div>
           </div>
         </div>
 
         <div className="rounded-xl p-4 text-sm" style={{background:"#E8F5EE"}}>
-          <p className="font-medium mb-1" style={{color:"#0A3D2E"}}>What this means for your hiring:</p>
-          <p style={{color:"#0F6E56"}}>Top candidates (≥{vals.autoApproveThreshold}) move to WhatsApp instantly. Borderline candidates ({vals.autoRejectThreshold}–{(vals.autoApproveThreshold||75)-1}) appear in your CV Review Dashboard. Weak candidates (&lt;{vals.autoRejectThreshold}) are handled automatically.</p>
+          <p className="font-medium mb-1" style={{color:"#0A3D2E"}}>How this works in your hiring:</p>
+          <p style={{color:"#0F6E56"}}>These bands are system-wide. AI recommendations are advisory — recruiters make all advancement decisions. You&apos;ll see the AI&apos;s band on every candidate card; you Approve, Hold, or Reject from there.</p>
         </div>
       </div>
 
@@ -726,7 +722,7 @@ export default function NewJobPage() {
             )}
           </div>
           <p className="text-sm text-gray-500 mt-1">
-            These questions are sent to every candidate via WhatsApp after CV approval. Edit, reorder, or add your own.
+            These questions are sent to every candidate via WhatsApp after CV approval. Edit or add your own.
           </p>
         </div>
 
