@@ -85,3 +85,29 @@ Saad is correct, and the issue is deeper than copy. Investigation showed the thr
 - **Fix**: In `frontend/src/app/(dashboard)/jobs/new/page.tsx:660-695`, replace the 3-box threshold UI + summary paragraph with a short read-only legend explaining AI Recommendation Bands: *"AI flags candidates as ✅ Advance (≥75), ⚠️ Hold (55-74), or ❌ Reject (<55). You decide whether to move them forward."* Drop `autoApproveThreshold` / `autoRejectThreshold` from the form schema (lines 41-42) + submit payload (line 228) since they're dead.
 - **Effort**: 30 min.
 - **Status**: agreed.
+
+---
+
+## Test 2.6 — Job Creation Wizard / Step 4 Baseline Questions (QA rating: Pass)
+
+Saad's note: *"Can we give an option to recruiter to add custom questions"* — a feature request on a passing test. While investigating, surfaced two adjacent issues in the same UI. All three shipped as one commit.
+
+### 2.6.a — Add "+ Add Custom Question" button
+- **Issue**: Step 4 lets recruiters edit and delete AI-generated questions but not add their own. Subtitle promises the feature (*"Edit, reorder, or add your own"*) but the UI doesn't deliver.
+- **Fix**: Add "+ Add Custom Question" button below the question list (around line 767 of `jobs/new/page.tsx`). On click: append a new question with `id: 'custom-<timestamp>'`, `type`: recruiter picks from dropdown (motivation / experience / salary / availability / skill_probe, default `skill_probe`), `questionTextEn`: empty + auto-focused, `questionTextAr` + `rationale`: empty. UI hides the 💡 rationale line when empty.
+- **Effort**: 30 min.
+- **Status**: agreed.
+
+### 2.6.b — Drop "reorder" from the Step 4 subtitle
+- **Issue**: Subtitle at line 728-730 promises *"Edit, reorder, or add your own"* but no reorder UI exists. Writing a cheque the UI doesn't cash.
+- **Decision**: Drop "reorder" from the copy rather than build it. Order doesn't affect screening (all 5 questions sent as a batch to WhatsApp), so reorder has visual-preference-only value.
+- **Fix**: Reword subtitle to *"Edit or add your own."*
+- **Effort**: 2 min.
+- **Status**: agreed.
+
+### 2.6.c — Helper text for custom-question language limitation
+- **Issue**: Custom questions added via 2.6.a are English-only. The conversation handler at `whatsapp-service/handlers/conversation.ts:369` reads `q.questionTextAr` when a candidate prefers Arabic — undefined for custom questions means an empty WhatsApp message.
+- **Fix**: Add helper text under the "+ Add Question" button: *"Custom questions are English-only — candidates on Arabic get the English version."* Documents the gap without blocking the feature.
+- **Follow-up (Phase 7, not today)**: auto-translate via Claude at save-time, OR conversation-handler fallback to English when Arabic is empty.
+- **Effort**: 5 min.
+- **Status**: agreed.
