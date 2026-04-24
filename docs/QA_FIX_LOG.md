@@ -31,3 +31,16 @@ Saad's notes captured two separate observations. Treated as two distinct fixes:
 - **Fix**: Add `metadata.title` to each page's layout so tabs read e.g. `"Analytics — HireIQ"` / `"Pipeline — Cloud Architect — HireIQ"`.
 - **Effort**: 30 min.
 - **Status**: deferred (not a QA finding, nice-to-have).
+
+---
+
+## Test 2.3 — Job Creation Wizard / Step 1 (QA rating: Partial)
+
+Saad's note: *"Country: It shows UK and Ksa which was in original design. It need to be removed."* — clarified to mean **UK and USA** (KSA stays, it's a core target market).
+
+### 2.3.a — Remove out-of-scope countries from the wizard dropdown
+- **Issue**: Country selector offers `GB (UK)` and `US (USA)`. HireIQ's target market is UAE + KSA + wider GCC; UK and USA aren't supported.
+- **Decision (Option A)**: Keep all six GCC countries — UAE, Saudi Arabia, Bahrain, Kuwait, Qatar, Oman. Remove UK and USA only. Rationale: Bahrain/Kuwait/Qatar/Oman currencies (BHD/KWD/QAR/OMR) were just added to the Currency enum two days ago (commit `4903e31`), signalling real demand in those markets.
+- **Fix**: Delete the `GB` and `US` entries from the `COUNTRIES` array in `frontend/src/app/(dashboard)/jobs/new/page.tsx:69-76`.
+- **Effort**: 2 min.
+- **Status**: agreed.
