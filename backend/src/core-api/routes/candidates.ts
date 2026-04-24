@@ -287,6 +287,53 @@ candidatesRouter.get('/:id/cv-diff', async (req: AuthRequest, res) => {
   }
 })
 
+// 4.8.b — Application history: all candidates sharing waNumberHash OR email
+// with the target candidate, within the same agency, excluding the target
+// itself. Powers the Talent Pool drawer's "Application History" section.
+candidatesRouter.get('/:id/history', async (req: AuthRequest, res: any) => {
+  try {
+    const target = await prisma.candidate.findFirst({
+      where: { id: req.params.id, agencyId: req.user!.agencyId },
+      select: { id: true, waNumberHash: true, email: true, agencyId: true },
+    })
+    if (!target) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Candidate not found' } })
+
+    const idMatchers: any[] = [{ waNumberHash: target.waNumberHash }]
+    if (target.email) idMatchers.push({ email: target.email })
+
+    const history = await prisma.candidate.findMany({
+      where: {
+        agencyId: target.agencyId,
+        id: { not: target.id },
+        OR: idMatchers,
+      },
+      select: {
+        id: true, pipelineStage: true, compositeScore: true, cvMatchScore: true,
+        createdAt: true,
+        job: { select: { title: true, hiringCompany: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 20,
+    })
+
+    res.json({
+      success: true,
+      data: history.map(h => ({
+        id: h.id,
+        jobTitle: h.job?.title || 'Unknown',
+        hiringCompany: h.job?.hiringCompany || null,
+        pipelineStage: h.pipelineStage,
+        compositeScore: h.compositeScore,
+        cvMatchScore: h.cvMatchScore,
+        createdAt: h.createdAt,
+      })),
+    })
+  } catch (err) {
+    logger.error('Candidate history error', { err })
+    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to get history' } })
+  }
+})
+
 // CV Download
 candidatesRouter.get('/:id/cv-download', async (req: AuthRequest, res: any) => {
   try {

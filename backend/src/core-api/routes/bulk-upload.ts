@@ -148,46 +148,62 @@ bulkUploadRouter.get('/jobs/:jobId/talent-matches', async (req: AuthRequest, res
       take: 100,
     })
 
-    // Re-score each candidate against job skills
-    const jobSkills: string[] = [
-      ...((job as any).requiredSkills || []),
-      ...((job as any).preferredSkills || []),
-    ]
+    // 4.4.a — Match algorithm rewrite. Required and preferred skills are
+    // weighted separately; a hard gate keeps candidates who don't actually
+    // match the non-negotiables (required skills) out of the result set.
+    // Cross-job compositeScore from previous applications no longer biases
+    // the match — each job gets a fresh score based on this job's skills only.
+    // String matching is restricted to the candidate's declared cvSkills[];
+    // we no longer scan the raw cvStructured JSON body (which produced false
+    // positives from historical project descriptions).
+    const requiredSkills: string[] = (job as any).requiredSkills || []
+    const preferredSkills: string[] = (job as any).preferredSkills || []
+
+    // TODO: Phase 8 — adaptive threshold based on must-have count
+    //   1-3 must-haves → 100% match required (small deliberate list)
+    //   4-6 must-haves → 66%  match required (typical list)
+    //   7+  must-haves → 50%  match required (likely bloated list)
+    const HARD_GATE_THRESHOLD = 0.5
+
+    const skillInCv = (skill: string, cvSkills: string[]) =>
+      cvSkills.some(s => s.toLowerCase().includes(skill.toLowerCase()))
 
     const matches = allCandidates
       .map(c => {
         const cvSkills: string[] = (c.cvStructured as any)?.skills || []
-        const cvText = JSON.stringify(c.cvStructured || '').toLowerCase()
 
-        // Skill match score
-        let skillMatches = 0
-        const skillEvidence = jobSkills.map(skill => {
-          const found = cvSkills.some(s => s.toLowerCase().includes(skill.toLowerCase())) ||
-                        cvText.includes(skill.toLowerCase())
-          if (found) skillMatches++
-          return { skill, found }
-        })
+        const requiredEvidence = requiredSkills.map(skill => ({
+          skill, found: skillInCv(skill, cvSkills)
+        }))
+        const preferredEvidence = preferredSkills.map(skill => ({
+          skill, found: skillInCv(skill, cvSkills)
+        }))
 
-        const skillScore = jobSkills.length > 0
-          ? Math.round((skillMatches / jobSkills.length) * 100)
-          : c.compositeScore || 0
+        const requiredMatches = requiredEvidence.filter(e => e.found).length
+        const preferredMatches = preferredEvidence.filter(e => e.found).length
 
-        // Blend stored score with skill match (60/40)
-        const storedScore = c.compositeScore || skillScore
-        const blendedScore = jobSkills.length > 0
-          ? Math.round(storedScore * 0.4 + skillScore * 0.6)
-          : storedScore
+        const requiredPct = requiredSkills.length > 0 ? requiredMatches / requiredSkills.length : 1
+        const preferredPct = preferredSkills.length > 0 ? preferredMatches / preferredSkills.length : 0
+
+        // Hard gate: drop candidates who don't meet the required-skill threshold.
+        // If the job has no required skills, skip the gate entirely.
+        if (requiredSkills.length > 0 && requiredPct < HARD_GATE_THRESHOLD) {
+          return null
+        }
+
+        // Scoring: required skills carry 70%, preferred 30%.
+        const skillScore = Math.round(requiredPct * 70 + preferredPct * 30)
 
         return {
           ...c,
-          compositeScore: blendedScore,
+          compositeScore: skillScore,
           dataTags: {
             ...(c.dataTags as any || {}),
-            evidence: { mustHaveSkills: skillEvidence },
+            evidence: { mustHaveSkills: [...requiredEvidence, ...preferredEvidence] },
           }
         }
       })
-      .filter(c => c.compositeScore >= threshold)
+      .filter((c): c is NonNullable<typeof c> => c !== null && c.compositeScore >= threshold)
       .sort((a, b) => (b.compositeScore || 0) - (a.compositeScore || 0))
       .slice(0, 30)
 

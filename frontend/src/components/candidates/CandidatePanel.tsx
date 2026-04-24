@@ -302,16 +302,37 @@ export function CandidatePanel({
                 </p>
               </div>
             ) : (
-              // L1+ post-screening: full 4-circle breakdown
-              <div className="flex items-center justify-around">
-                <ScoreBadge score={s('compositeScore')}  size="lg" showLabel label="Overall" />
-                <div className="w-px h-12 bg-gray-200" />
-                <ScoreBadge score={s('cvMatchScore')}    size="md" showLabel label="CV Match" />
-                <div className="w-px h-12 bg-gray-200" />
-                <ScoreBadge score={s('commitmentScore')} size="md" showLabel label="Commitment" />
-                <div className="w-px h-12 bg-gray-200" />
-                <ScoreBadge score={s('salaryFitScore')}  size="md" showLabel label="Salary Fit" />
-              </div>
+              // L1+ post-screening breakdown. 5th "Domain Knowledge" circle
+              // appears at stage ≥ interviewing per 7.6.b.
+              (() => {
+                const showDomain = ['interviewing','offered','hired'].includes(stage)
+                const domainScore = (candidate as any).interviewTechnicalScore ?? null
+                return (
+                  <div className="flex items-center justify-around">
+                    <ScoreBadge score={s('compositeScore')}  size="lg" showLabel label="Overall" />
+                    <div className="w-px h-12 bg-gray-200" />
+                    <ScoreBadge score={s('cvMatchScore')}    size="md" showLabel label="CV Match" />
+                    <div className="w-px h-12 bg-gray-200" />
+                    <ScoreBadge score={s('commitmentScore')} size="md" showLabel label="Commitment" />
+                    <div className="w-px h-12 bg-gray-200" />
+                    <ScoreBadge score={s('salaryFitScore')}  size="md" showLabel label="Salary Fit" />
+                    {showDomain && (
+                      <>
+                        <div className="w-px h-12 bg-gray-200" />
+                        {domainScore != null ? (
+                          <ScoreBadge score={domainScore} size="md" showLabel label="Domain" />
+                        ) : (
+                          <div className="flex flex-col items-center gap-1 opacity-40">
+                            <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center ring-2 ring-gray-200 text-gray-400 text-sm font-semibold">—</div>
+                            <span className="text-xs text-gray-400">Domain</span>
+                            <span className="text-[10px] text-gray-400 italic">After interview</span>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )
+              })()
             )}
 
             {/* Authenticity flag (CV-polished warning) */}
@@ -483,28 +504,9 @@ export function CandidatePanel({
                     />
                   )}
 
-                  {/* Job History — TP only */}
+                  {/* 4.8.b — Application History (TP only) */}
                   {context === 'talent_pool' && (
-                    <div>
-                      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Application History</p>
-                      <div className="space-y-2">
-                        <div className="p-3 rounded-xl border border-gray-100">
-                          <div className="flex items-center justify-between">
-                            <p className="text-sm font-medium text-gray-800">
-                              {(candidate.dataTags as any)?.jobTitle || candidate.currentRole || 'Most recent application'}
-                            </p>
-                            {s('compositeScore') != null && (
-                              <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: '#E8F5EE', color: '#0A3D2E' }}>
-                                {s('compositeScore')}
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-xs text-gray-400 mt-0.5 capitalize">
-                            {candidate.pipelineStage?.replace(/_/g, ' ')} · {candidate.createdAt ? new Date(candidate.createdAt).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' }) : ''}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
+                    <ApplicationHistoryBlock candidateId={candidateId} />
                   )}
                 </div>
               )}
@@ -804,6 +806,67 @@ function CvDetailsBlock({
               </span>
             ))}
           </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// 4.8.b — Real application history fetched from the new
+// GET /candidates/:id/history endpoint. Talent Pool drawer only.
+interface ApplicationHistoryItem {
+  id: string
+  jobTitle: string
+  hiringCompany: string | null
+  pipelineStage: string
+  compositeScore: number | null
+  cvMatchScore: number | null
+  createdAt: string
+}
+
+function ApplicationHistoryBlock({ candidateId }: { candidateId: string }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ['candidate-history', candidateId],
+    queryFn: async () => {
+      const res = await api.get<ApplicationHistoryItem[]>(`/candidates/${candidateId}/history`)
+      return res.data.data
+    },
+  })
+
+  return (
+    <div>
+      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Application History</p>
+      {isLoading ? (
+        <div className="space-y-2">
+          {[1,2].map(i => <div key={i} className="skeleton h-16 rounded-xl" />)}
+        </div>
+      ) : !data || data.length === 0 ? (
+        <div className="p-3 rounded-xl border border-dashed border-gray-200 text-xs text-gray-400 text-center">
+          This is their first application.
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {data.map(h => {
+            const score = h.compositeScore ?? h.cvMatchScore ?? null
+            return (
+              <div key={h.id} className="p-3 rounded-xl border border-gray-100">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-medium text-gray-800 truncate">
+                    {h.jobTitle}{h.hiringCompany ? <span className="text-gray-400 font-normal"> · {h.hiringCompany}</span> : null}
+                  </p>
+                  {score != null && (
+                    <span className="text-xs font-bold px-2 py-0.5 rounded-full flex-shrink-0"
+                      style={{ background: '#E8F5EE', color: '#0A3D2E' }}>
+                      {score}
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-gray-400 mt-0.5 capitalize">
+                  {h.pipelineStage.replace(/_/g, ' ')} · {new Date(h.createdAt).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' })}
+                </p>
+              </div>
+            )
+          })}
         </div>
       )}
     </div>

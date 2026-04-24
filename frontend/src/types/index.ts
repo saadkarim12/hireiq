@@ -182,6 +182,11 @@ export interface CandidateSummary {
   aiRecommendation: AiRecommendation | null
   aiRecommendationReason: string | null
   aiRecommendationStage: AiRecommendationStage | null
+  // Interview scores — Phase 6k schema, populated by L2/L3 interview feedback
+  // form (Phase 7 UI). interviewTechnicalScore = "Domain Knowledge" in the
+  // score model per 7.6.b.
+  interviewTechnicalScore?: number | null
+  interviewCultureScore?: number | null
   createdAt: string
   shortlistedAt: string | null
 }
