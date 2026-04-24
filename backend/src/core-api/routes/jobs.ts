@@ -21,6 +21,27 @@ function generateShortcode(): string {
   return 'JB' + Math.random().toString(36).slice(2, 7).toUpperCase()
 }
 
+// 4.3.c — Duplicate pre-check. Wizard calls this on title/company blur to warn
+// the recruiter before submission. Returns { duplicate: bool, existing?: {...} }.
+jobsRouter.get('/check-duplicate', async (req: AuthRequest, res) => {
+  try {
+    const { title, hiringCompany } = req.query
+    if (!title || !hiringCompany) return res.json({ success: true, data: { duplicate: false } })
+    const existing = await prisma.job.findFirst({
+      where: {
+        agencyId: req.user!.agencyId,
+        title: { equals: String(title), mode: 'insensitive' },
+        hiringCompany: { equals: String(hiringCompany), mode: 'insensitive' },
+        status: 'active',
+      },
+      select: { id: true, title: true, hiringCompany: true, createdAt: true },
+    })
+    res.json({ success: true, data: { duplicate: !!existing, existing: existing || null } })
+  } catch (err: any) {
+    res.json({ success: true, data: { duplicate: false } })
+  }
+})
+
 // ── LIST JOBS ─────────────────────────────────────────────────────────────────
 jobsRouter.get('/', async (req: AuthRequest, res) => {
   try {
@@ -78,7 +99,33 @@ jobsRouter.get('/:id', async (req: AuthRequest, res) => {
 jobsRouter.post('/', async (req: AuthRequest, res) => {
   try {
     const { title, hiringCompany, locationCountry, locationCity, jobType, salaryMin, salaryMax, currency,
-      requiredSkills, preferredSkills, minExperienceYears, requiredLanguages, jdText, closingDate } = req.body
+      requiredSkills, preferredSkills, minExperienceYears, requiredLanguages, jdText, closingDate,
+      allowDuplicate } = req.body
+
+    // 4.3.c — duplicate guard. Prevent accidental creation of another active
+    // job with the same (agencyId, title, hiringCompany). Recruiter can force
+    // through by resubmitting with allowDuplicate: true after seeing the warning.
+    if (!allowDuplicate) {
+      const existing = await prisma.job.findFirst({
+        where: {
+          agencyId: req.user!.agencyId,
+          title: { equals: title, mode: 'insensitive' },
+          hiringCompany: { equals: hiringCompany, mode: 'insensitive' },
+          status: 'active',
+        },
+        select: { id: true, title: true, hiringCompany: true, createdAt: true },
+      })
+      if (existing) {
+        return res.status(409).json({
+          success: false,
+          error: {
+            code: 'DUPLICATE_JOB',
+            message: `An active job '${existing.title}' at ${existing.hiringCompany} already exists. Confirm this is a distinct role to continue.`,
+            existing,
+          },
+        })
+      }
+    }
 
     const applyUrlSlug = generateSlug(title, hiringCompany)
     const waShortcode  = generateShortcode()

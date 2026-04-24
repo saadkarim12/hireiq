@@ -143,6 +143,9 @@ export default function NewJobPage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [showCustomCity, setShowCustomCity] = useState(false)
   const [createdJobId, setCreatedJobId] = useState<string | null>(null)
+  // 4.3.c — duplicate warning state
+  const [duplicateWarning, setDuplicateWarning] = useState<{ existing?: { title: string; hiringCompany: string; createdAt: string } } | null>(null)
+  const [allowDuplicate, setAllowDuplicate] = useState(false)
 
   const { register, watch, setValue, getValues, formState: { errors } } = useForm<FormData>({
     defaultValues: {
@@ -221,6 +224,7 @@ export default function NewJobPage() {
         requiredSkills: v.requiredSkills, preferredSkills: v.preferredSkills,
         mustHaveSkills: v.mustHaveSkills, niceToHaveSkills: v.niceToHaveSkills,
         jdText,
+        allowDuplicate,
       })
 
       const jobId = jobRes.data.data.id
@@ -295,14 +299,62 @@ export default function NewJobPage() {
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className={labelCls}>Job Title *</label>
-            <input {...register('title')} className={inputCls} placeholder="e.g. Senior Finance Analyst" />
+            <input {...register('title', {
+              onBlur: async () => {
+                const t = getValues('title'); const c = getValues('hiringCompany')
+                if (!t || !c) return
+                try {
+                  const res = await api.get<{ duplicate: boolean; existing: any }>(`/jobs/check-duplicate?title=${encodeURIComponent(t)}&hiringCompany=${encodeURIComponent(c)}`)
+                  if ((res.data as any)?.data?.duplicate) {
+                    setDuplicateWarning({ existing: (res.data as any).data.existing })
+                    setAllowDuplicate(false)
+                  } else {
+                    setDuplicateWarning(null)
+                  }
+                } catch {}
+              }
+            })} className={inputCls} placeholder="e.g. Senior Finance Analyst" />
             {errors.title && <p className="text-red-500 text-xs mt-1">{errors.title.message}</p>}
           </div>
           <div>
             <label className={labelCls}>Hiring Company *</label>
-            <input {...register('hiringCompany')} className={inputCls} placeholder="e.g. DAMAC Properties" />
+            <input {...register('hiringCompany', {
+              onBlur: async () => {
+                const t = getValues('title'); const c = getValues('hiringCompany')
+                if (!t || !c) return
+                try {
+                  const res = await api.get<{ duplicate: boolean; existing: any }>(`/jobs/check-duplicate?title=${encodeURIComponent(t)}&hiringCompany=${encodeURIComponent(c)}`)
+                  if ((res.data as any)?.data?.duplicate) {
+                    setDuplicateWarning({ existing: (res.data as any).data.existing })
+                    setAllowDuplicate(false)
+                  } else {
+                    setDuplicateWarning(null)
+                  }
+                } catch {}
+              }
+            })} className={inputCls} placeholder="e.g. DAMAC Properties" />
           </div>
         </div>
+
+        {/* 4.3.c — Duplicate warning banner */}
+        {duplicateWarning?.existing && (
+          <div className="rounded-xl p-3 text-sm flex items-start gap-3"
+            style={{ background: '#FEF3C7', borderLeft: '4px solid #C9A84C' }}>
+            <span className="text-amber-500 text-lg flex-shrink-0">⚠️</span>
+            <div className="flex-1">
+              <p className="font-medium" style={{ color: '#92400E' }}>
+                An active '{duplicateWarning.existing.title}' at {duplicateWarning.existing.hiringCompany} already exists.
+              </p>
+              <p className="text-xs text-amber-800 mt-0.5">
+                Make sure this is a distinct role before continuing. Created on {new Date(duplicateWarning.existing.createdAt).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' })}.
+              </p>
+              <label className="flex items-center gap-1.5 mt-2 text-xs text-amber-900 cursor-pointer">
+                <input type="checkbox" checked={allowDuplicate} onChange={e => setAllowDuplicate(e.target.checked)} />
+                I understand this is a new, distinct role — continue anyway
+              </label>
+            </div>
+          </div>
+        )}
 
         <div className="grid grid-cols-2 gap-4">
           <div>

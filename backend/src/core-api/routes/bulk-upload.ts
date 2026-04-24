@@ -111,9 +111,38 @@ bulkUploadRouter.get('/talent-pool/search', async (req: AuthRequest, res: Respon
         ...(minScore && parseInt(minScore as string) > 0 ? { compositeScore: { gte: parseInt(minScore as string) } } : {}),
       },
       orderBy: { compositeScore: 'desc' },
-      take: 100,
+      take: 200,  // fetch more; dedupe may shrink the set
     })
-    res.json({ success: true, data: candidates, meta: { total: candidates.length } })
+
+    // 7.6.a.iii — Collapse rows by identity. A person who applied to 3 jobs
+    // has 3 Candidate rows sharing waNumberHash (and usually email). Show one
+    // row per unique person in Talent Pool — latest application wins for the
+    // display fields, but we annotate with applicationCount for context.
+    const byKey = new Map<string, any>()
+    for (const c of candidates) {
+      // Prefer email as the dedupe key when available; fall back to waNumberHash.
+      const key = (c.email || `wa:${c.waNumberHash}`).toLowerCase()
+      const existing = byKey.get(key)
+      if (!existing) {
+        byKey.set(key, { ...c, applicationCount: 1, bestCompositeScore: c.compositeScore })
+      } else {
+        existing.applicationCount += 1
+        // Prefer the row with the highest compositeScore for display; keep
+        // the best score separately so UI can flag "best of N applications".
+        if ((c.compositeScore || 0) > (existing.bestCompositeScore || 0)) {
+          existing.bestCompositeScore = c.compositeScore
+        }
+        // Keep the most-recent row as the canonical record
+        if (new Date(c.createdAt) > new Date(existing.createdAt)) {
+          byKey.set(key, { ...c, applicationCount: existing.applicationCount, bestCompositeScore: existing.bestCompositeScore })
+        }
+      }
+    }
+    const deduped = Array.from(byKey.values())
+      .sort((a, b) => (b.bestCompositeScore || 0) - (a.bestCompositeScore || 0))
+      .slice(0, 100)
+
+    res.json({ success: true, data: deduped, meta: { total: deduped.length, beforeDedupe: candidates.length } })
   } catch {
     res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Failed' } })
   }
