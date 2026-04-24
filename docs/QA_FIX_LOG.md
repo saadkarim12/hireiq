@@ -363,3 +363,92 @@ Record 1 is a legacy seed from before Phase 6k scoring landed — it was placed 
 - **Fix**: In the Talent Pool search query (`bulk-upload.ts` / wherever `/talent-pool/search` lives), collapse rows by `email OR waNumberHash`. Show one row per unique identity, aggregate view: latest stage, best composite, application count.
 - **Effort**: 1h.
 - **Status**: agreed.
+
+---
+
+## Test 7.7 — Rejection message same across all levels (QA rating: Pass, FR noted)
+
+Saad's note: *"When rejected it generates message to candidate and it applies to all levels"*
+
+Today's rejection behaviour:
+1. Recruiter rejects → `pipelineStage='rejected'`. **No proactive message** is sent to the candidate.
+2. If the candidate sends `status` / `حالة` via WhatsApp, `conversation.ts:45,57` replies with a fixed rejection string — same regardless of stage.
+
+### 7.7.a — Store `rejectedFromStage` (foundation)
+- **Schema**: add `rejectedFromStage` VarChar column on Candidate.
+- **Backend**: in `routes/candidates.ts` PATCH handler, when new stage is `'rejected'`, capture the previous stage into `rejectedFromStage` before the update.
+- **Effort**: 15 min.
+- **Status**: agreed.
+
+### 7.7.b — Two-tier rejection message on status query
+- **Fix**: Replace the fixed `MSG.statusEn.rejected` / `MSG.statusAr.rejected` with a function that returns one of two messages based on `rejectedFromStage`:
+  - Pre-screening (`applied` / `evaluated` / `shortlisted`): *"Thank you for applying. After reviewing your profile, we've decided to proceed with other candidates whose background is closer to this specific role. We'll keep your details for future opportunities."*
+  - Post-screening (`interviewing` / `offered`): *"Thank you for taking the time to engage in our screening process. We've decided to proceed with another candidate for this role but were impressed with your effort, and we'll keep your profile on file."*
+- Plus Arabic equivalents.
+- **Effort**: 15 min.
+- **Status**: agreed.
+
+### 7.7.c — Proactive rejection WhatsApp on recruiter action (deferred to Phase 7)
+- **Idea**: When recruiter clicks Reject, push the rejection message to WhatsApp immediately — don't wait for the candidate to check status.
+- **Why deferred**: PDPL / cultural sensitivity (some agencies prefer silence for no-hires; needs a per-agency toggle); should ship with 360dialog production integration, not against the mock; candidate-rejection flow warrants polish time.
+- **Effort**: 2-3h.
+- **Status**: deferred to Phase 7.
+
+---
+
+## Test 8.2 — AI Recommendation reason truncated (QA rating: Partial)
+
+Saad's note: *"Text is hidden. It should be clickable showing all details"*
+
+The `truncate` class on the reason line caps it at one ellipsised line, but backend stores up to 500 chars. Recruiter sees partial sentences with no way to see the rest.
+
+### 8.2.a — Click-to-expand AI Recommendation block
+- **Fix**: In `frontend/src/components/candidates/CandidatePanel.tsx` AI Recommendation block: wrap in a clickable `<button>` with `useState` toggle. Collapsed view keeps `truncate` single line. Expanded view shows full reason text (wraps naturally) plus a stage-transition label (*"For: Applied → L1"*) and a chevron ▸/▾ affordance. Keyboard accessible.
+- **Effort**: 30 min.
+- **Status**: agreed.
+
+---
+
+## Test 8.3 — Approve flow surfaces API message (QA rating: Partial)
+
+Saad's note: *"We should not show the message of API. Its irrelevant for customer"*
+
+Same code path as 5.6. The only user-visible "API"/"Claude" strings in the frontend are the Approve-to-L1 confirmation modal (body line 605, amber line 608). The modal is triggered from both the CV Inbox drawer (5.6) and the Pipeline Applied drawer (8.3) — one component, two entry points, one fix.
+
+### 8.3.a — Covered by 5.6.a
+- **Status**: no separate fix. Both 5.6 and 8.3 flip Partial → Pass after 5.6.a ships.
+
+---
+
+## Test 8.5 — Drag to different levels doesn't work (QA rating: Fail)
+
+Saad's observation: *"while i try drag to different levels it wont work"* (expanded from the original "Fit into Applied" note).
+
+Live verification: backend works (PATCH returns 200 in ~6ms, stage changes correctly, history appends, backward warns fire). The failure is in the frontend drag detection.
+
+**Root cause**: `KanbanBoard.tsx:44-62` uses `collisionDetection={closestCorners}` with dnd-kit. When a column already has candidate cards in it, the closest drop target by corner proximity is almost always one of those existing cards — not the empty column background. The handler then reads `over.id` as the card's UUID, the `isColumn` check fails, and it silently returns with no mutation, no toast, no visual cue. Drag to an empty column works; drag to a populated column silently fails.
+
+Also surfaced a related bug: backward drag from L2+ to L1 re-fires WhatsApp screening (see 8.5.b).
+
+### 8.5.a — Handle drag onto cards inside columns
+- **Fix**: In `handleDragEnd`, if `over.id` matches a candidate id (not a column key), look up that card's `pipelineStage` and map it to the column it belongs to. Use the column key as the target stage. Something like:
+  ```tsx
+  const overCard = candidates.find(c => c.id === over.id)
+  let targetStage = overCard
+    ? stages.find(s => s.key === overCard.pipelineStage || (s as any).stages?.includes(overCard.pipelineStage))?.key
+    : over.id as PipelineStage
+  if (!targetStage || !stages.some(s => s.key === targetStage)) return
+  if (candidate.pipelineStage === targetStage) return
+  onStageChange(candidateId, targetStage)
+  ```
+- **Effort**: 20 min.
+- **Status**: agreed.
+
+### 8.5.b — Guard against re-firing WhatsApp sim on backward drag to L1
+- **Fix**: In `backend/src/core-api/routes/candidates.ts` PATCH handler, tighten the `enteringL1` check so it only fires when coming from a pre-screening stage (applied / evaluated / screening / null). Don't re-fire when coming back from interviewing / offered / hired — those candidates already have screening results and re-running wastes a Claude call + confuses the audit trail.
+  ```tsx
+  const enteringL1 = pipelineStage === 'shortlisted'
+    && ['applied','evaluated','screening'].includes(prevStage || '')
+  ```
+- **Effort**: 5 min.
+- **Status**: agreed.
