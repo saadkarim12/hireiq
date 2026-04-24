@@ -335,3 +335,31 @@ Default weights (proposed, needs confirmation): e.g. `CV 25% + Commitment 25% + 
 ### Demo-ready position
 
 For upcoming demos: **ship 7.6.a (cleanup) + 7.6.b (Domain Knowledge in formula)**. Skip 7.6.c (recruiter-editable weights) — use hardcoded weights for now, tell prospects *"Per-job score weighting is coming in our next release."*
+
+### 7.6.a breakdown (from live repro with Saad)
+
+Saad shared a screenshot of Khalid Al-Otaibi's drawer — candidate at `shortlisted` (L1) with all four score circles showing dashes. Investigation found:
+
+| Record | Stage | Created | Job | Scores |
+|---|---|---|---|---|
+| `ff5b9525...` | shortlisted | 2026-04-10 (pre-Phase-6k) | Cloud Architect | all null |
+| `ae10d703...` | applied | 2026-04-20 (post-Phase-6k) | Enterprise Architect | cvMatch=92 |
+
+Record 1 is a legacy seed from before Phase 6k scoring landed — it was placed at `shortlisted` without ever going through CV-only scoring or WhatsApp sim. Record 2 is a fresh pool-invite with proper scores. Khalid therefore also appears twice in the Talent Pool list — the "duplication" Saad flagged.
+
+#### 7.6.a.i — Drawer empty state when L1+ has null scores (agreed, ship now)
+- **Issue**: Drawer's 4-circle layout assumes post-screening candidates have scores. Legacy shortlisted rows show four dashes — looks broken.
+- **Fix**: In `frontend/src/components/candidates/CandidatePanel.tsx` L1+ score section, detect the all-null case and replace the 4-circle row with a neutral card: *"Scores not captured. This candidate was promoted before automated scoring was available."*
+- **Effort**: 15 min.
+- **Status**: agreed.
+
+#### 7.6.a.ii — Backfill CV Match for stale L1+ rows (deferred to next phase)
+- **Idea**: One-shot migration: `SELECT id FROM candidates WHERE pipeline_stage IN ('shortlisted','interviewing','offered','hired') AND cv_match_score IS NULL`. Call `POST /api/v1/ai/score-cv` for each. Populates `cvMatchScore` without changing stage.
+- **Why deferred**: Cosmetic backfill on stale data. Empty-state from 7.6.a.i already handles the bad look honestly. Claude cost for candidates unlikely to become real hires isn't justified.
+- **Status**: deferred to next phase.
+
+#### 7.6.a.iii — Talent Pool dedupe by identity (agreed, ship now)
+- **Issue**: Pool-invite flow creates a new candidate row per job application (by design). Talent Pool list shows all rows, so a person with multiple applications appears multiple times. Saad flagged this as "duplication" in his 7.6 note.
+- **Fix**: In the Talent Pool search query (`bulk-upload.ts` / wherever `/talent-pool/search` lives), collapse rows by `email OR waNumberHash`. Show one row per unique identity, aggregate view: latest stage, best composite, application count.
+- **Effort**: 1h.
+- **Status**: agreed.
