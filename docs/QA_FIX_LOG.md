@@ -248,3 +248,90 @@ Saad asked me to verify 5.3 as he couldn't confirm it himself.
 **Verdict: PASS.** The test's Expected column reads *"Section renders"* (strict readout). Code inspection (`CandidatePanel.tsx:413-434`) confirms the section is wired unconditionally within the `context === 'talent_pool'` block. Live data fetch against a real candidate (Zainab Khan, id `493f520e...`) confirmed all fields the section reads are populated or fall through to safe fallbacks — section will render one card showing role · score chip · stage · date.
 
 Saad's earlier observation (*"only shows Applied Jobs with no history"*) is a **content** issue, not a render issue. That's captured by Test 4.8 (Fail, agreed fix 4.8.b in this doc). Once 4.8.b ships, 4.8 also flips to Pass. No separate fix needed for 5.3.
+
+---
+
+## Tests 7.2 + 7.3 — "🔄 Screening" badge missing after Approve-to-L1 (QA ratings: Fail, Fail)
+
+Saad's 7.2 note: *"L1 shows 'Pending Interview Invite' Also there is no option to download CV"*
+Saad's 7.3 note: empty (expected visible loading state).
+
+Live verification: both are symptoms of the **same race condition**.
+
+**Timing observed on localhost test with candidate 78437e34...**:
+- t=0.1s  conversationState becomes `screening_q1` (sim started)
+- t=5s    conversationState still `screening_q1` (sim running)
+- t=10s   conversationState flips to `cv_received` (sim done)
+- t=15s   composite score persisted (30)
+
+So the `screening_q*` window is real in the DB, ~5-10s on localhost (longer in production with real WhatsApp latency).
+
+**Race**: core-api PATCH `/status` returns HTTP 200 *before* firing an HTTP call to whatsapp-service's simulate-screening endpoint, which then writes `screening_q1` — all async. If the frontend's post-PATCH refetch completes before the sim's first write lands (<100ms window on localhost), the refetch sees `conversationState='initiated'`. The kanban card falls through to the AiRecommendationBadge which, with stage=shortlisted + null recommendation, renders *"Pending interview invite"* (the 7.2 symptom).
+
+Worse: the pipeline page's refetchInterval detector only drops to 3s polls *if* it sees any candidate in `screening_q*`. Because the first refetch missed the window, no candidate is in-flight from the detector's perspective → next refetch is 30s later, by which time the sim has completed and conversationState is `cv_received`. The "🔄 Screening" badge never renders (the 7.3 symptom).
+
+### 7.2.a / 7.3.a — Eliminate the race (single fix resolves both)
+- **Fix**: In `backend/src/core-api/routes/candidates.ts` PATCH `/:id/status` handler, when `enteringL1` is true and *before* firing the HTTP call to whatsapp-service's simulate-screening, synchronously update the candidate with `conversationState: 'screening_q1'`. Keep the downstream sim endpoint's identical write as a defensive idempotent no-op.
+- **Expected outcome**: Any refetch after the PATCH sees `screening_q1`. Polling detector finds an in-flight candidate → drops to 3s interval → card renders "🔄 Screening" for the full sim duration → flips to composite score when sim completes.
+- **Also addresses** the Download CV part of Saad's 7.2 note — already covered by 3.10.a (always show button + fix click handler).
+- **Effort**: 15 min.
+- **Status**: agreed.
+
+---
+
+## Test 7.6 — Score model proposal: 4-dimension weighted, recruiter-editable (QA rating: Partial)
+
+Saad's note (full): *"At Level-1 (after AI CV screening): We should have CV Match score. At Level-2 (after WhatsApp): We should have Commitment + Salary fit. At Level-3 (After Interview): Domain Knowledge Score. Overall score is based on the weightage results of CV match, Commitment, Salary and Domain knowledge… recruiter can edit the weightage as it depends on type of job role. Also in current someone's score shown and someone not shown. Clean the duplication as well. Need to keep short for demo."*
+
+This is a **significant score-model refactor**, not a bug fix. My earlier first-review stance (against Ali's initial raising of the same idea) was to **defer to Phase 7**. Saad is now explicitly asking for it at 7.6. Treating this as a live product decision.
+
+### What Saad is proposing
+
+Per-stage score collection:
+| Stage | Scores populated |
+|---|---|
+| Applied (CV only) | `cvMatchScore` |
+| L1 (post-WhatsApp) | `commitmentScore` + `salaryFitScore` |
+| L2 (post-Interview) | `interviewTechnicalScore` (new: "Domain Knowledge") |
+| L3+ | rolled-up `overallScore` using recruiter-editable weights |
+
+Default weights (proposed, needs confirmation): e.g. `CV 25% + Commitment 25% + Salary 15% + Domain 35%`. Recruiter can adjust per-job.
+
+### What exists today (v1.10.0)
+
+- Applied stage already shows `cvMatchScore` only (post Phase 6k) ✓
+- L1 stage computes full composite `= 0.4*CV + 0.4*Commitment + 0.2*Salary` (no Domain Knowledge)
+- L2+ schema has `interviewTechnicalScore` + `interviewCultureScore` fields (from v1.8.0) but no UI collects them
+- No recruiter-editable weights (they're hardcoded in `shared/recommendations.ts` and `score-candidate.ts`)
+
+### Gap between today and proposal
+
+1. **Domain Knowledge as a distinct L2→L3 dimension** — schema field `interviewTechnicalScore` exists. Need UI to capture it (recruiter enters post-interview) + backend to include it in overall calc.
+2. **Overall formula widened to include Domain Knowledge** — today's composite stops at Commitment + Salary Fit. Need to extend.
+3. **Per-job recruiter-editable weights** — net-new feature. Needs UI (probably in the job wizard Step 3 or a job-settings page), schema column (`scoreWeights` Json on Job), and backend logic to read weights from job on each rescore.
+4. **"Someone's score shown and someone not shown" / clean duplication** — this is a **specific defect** in the current drawer. Saad is noting that the score display is inconsistent across candidates and has duplicate elements. Need to reproduce to fix.
+
+### Recommendation — split into three scoped fixes
+
+**7.6.a — Clean up score display duplication (bug fix, ship soon)**
+- Saad's note: *"in current someone's score shown and someone not shown. Clean the duplication as well."*
+- Need a browser session with Saad to reproduce which candidates show duplicate vs. missing scores. Likely stems from the L1-vs-L1+ conditional rendering in `CandidatePanel.tsx` being too strict or too loose in certain edge cases.
+- **Effort**: 30 min to reproduce + fix.
+- **Status**: agreed, pending repro.
+
+**7.6.b — Introduce Domain Knowledge Score in overall formula (scoped feature)**
+- Extend `recommendForL3` in `shared/recommendations.ts` to include `interviewTechnicalScore` as a dimension.
+- Update drawer to show Domain Knowledge score when `pipelineStage >= 'interviewing'` and the field is populated.
+- **Does NOT** include the L2 interview-score capture UI (recruiter-entered form). That's still Phase 7 because no "Interview Feedback" form exists yet.
+- For now: either leave the interview score blank (empty field in drawer) or provide an admin-only input field to populate it manually for demo purposes.
+- **Effort**: 1-2h (formula change + drawer rendering; UI capture form deferred).
+- **Status**: agreed, scoped.
+
+**7.6.c — Recruiter-editable score weights per job (deferred to Phase 7)**
+- Net-new feature. Requires: `scoreWeights` column on Job, wizard UI in Step 3, backend to read weights dynamically in `recommendForL2` / `recommendForL3`, default fallback when no weights set, analytics consideration (do historical candidates get re-scored if weights change? no — leave as-scored).
+- **Effort**: 4-6h.
+- **Status**: deferred to Phase 7. Saad's note says *"Need to keep short for demo"* — this is the part that gets punted.
+
+### Demo-ready position
+
+For upcoming demos: **ship 7.6.a (cleanup) + 7.6.b (Domain Knowledge in formula)**. Skip 7.6.c (recruiter-editable weights) — use hardcoded weights for now, tell prospects *"Per-job score weighting is coming in our next release."*
