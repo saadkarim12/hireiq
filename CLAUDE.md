@@ -160,32 +160,47 @@ Plus 10 Cloud Architect pipeline candidates (Omar Farouk, Ahmed Al-Rashidi, Sara
 
 **v1.10.0 — Analytics v1.** Owner-facing performance rollup at `/analytics`. Period pills (30/90/180/365d, gold active), optional job-filter dropdown. 4 KPI cards (Active Jobs agency-wide, Avg Time to Fill, Hire Rate, Cost per Hire as "Coming Soon" pill). Pipeline Funnel with count + %-of-applied labels + drop-off strip. Time-at-Stage horizontal bars coloured green <3d / amber 3-7d / red 7d+. Source Performance table. Recruiter Performance as Phase 7 stub. Empty states per chart with sensible thresholds.
 
-## In Progress — QA v1.2 Review (started 2026-04-24, for Ali)
+## QA v1.2 Review — COMPLETE (2026-04-24, for Ali)
 
-Saad and I are working through `docs/HireIQ_QA_Test_Plan_v1.2.docx` one test at a time. Every agreed fix, deferred item, and decision is being logged in `docs/QA_FIX_LOG.md` — **that's the authoritative doc for where each test landed**. CLAUDE.md just tracks the high-level status.
+Saad and I triaged every non-Pass test in `docs/HireIQ_QA_Test_Plan_v1.2.docx`. Every decision, deferral, and verification lives in `docs/QA_FIX_LOG.md` — **that's the authoritative per-test doc**. CLAUDE.md just summarises.
 
-**QA results summary**: 85 tests · 68 Pass (80%) · 10 Partial · 7 Fail.
+**Starting numbers**: 85 tests · 68 Pass (80%) · 10 Partial (12%) · 7 Fail (8%).
 
-**Progress as of 2026-04-24 end-of-day** (10 of ~17 non-Pass tests triaged):
+**After verification** (three tests re-rated after live inspection):
+- 5.3 TP Job History — Fail → **Pass** (section renders; content gap is 4.8)
+- 8.6 Stage History JSON — Fail → **Pass** (`pipelineStageHistory` correctly populated)
+- 8.7 / 8.8 reasons — **Pass confirmed** with live data
 
-| Test | QA status | Disposition |
-|---|---|---|
-| 1.1 | Partial | **agreed** — favicon + drop `Loading...` conditional in Sidebar |
-| 2.3 | Partial | **agreed** — remove UK/USA from country dropdown (keep all 6 GCC) |
-| 2.4 | Partial | **agreed** — flip Step 2 default to Paste JD + swap tab order + discovery hint |
-| 2.5 | Partial | **agreed** — **Option C** — remove the dead threshold block (sliders didn't wire through; copy contradicted the "AI proposes, recruiter decides" principle) |
-| 2.6 | Pass (but feature ask) | **agreed** — add custom-question button + drop the unbacked "reorder" promise + English-only helper |
-| 3.9 | Pass (but feature ask) | **agreed** — add WhatsApp number to Key Details grid across all 3 drawer contexts |
-| 3.10 | Partial | **agreed** — always show Download CV (backend already synthesises text CV from `cvStructured`); 3.10.b (persist original PDF) deferred to Phase 7 |
-| 4.3 | Fail | **agreed** — 12 duplicate test jobs in DB → soft-close older copies; add creation-date suffix to dropdown labels |
-| 4.4 | Partial | **agreed** — rewrite `/talent-matches` match algorithm: hard-gate required skills, drop cross-job `storedScore` contamination, restrict skill-match to declared `cvSkills[]` not raw CV text |
-| 4.8 | Fail | *in discussion* |
+### 26 agreed fixes (to ship) — 5 sprints
 
-**Still to triage**: 4.8, 5.3, 7.2, 7.3, 7.6, 8.2, 8.3, 8.5, 8.6.
+**Sprint 1 — Copy + cosmetic (~2h, low risk)**:
+1.1.b sidebar Loading · 2.3.a country list · 2.4.a+b Step 2 defaults · 2.5.a threshold block → read-only legend · 2.6.b drop "reorder" · 2.6.c English-only helper · 4.3.b dropdown date suffix · 5.6.a Approve modal rewrite (covers 8.3) · 7.6.a.i drawer empty state
 
-**No code changes yet** — we're agreeing scope and rationale first, then landing the fixes in batched commits (probably one commit per module). No tag planned until 100% of agreed fixes ship and Saad retests.
+**Sprint 2 — Drawer improvements (~2h, focused on CandidatePanel)**:
+3.9.a WhatsApp number · 3.10.a always-show Download CV + blob handler · 4.8.a rename "Applied Jobs" · 8.2.a click-to-expand AI recommendation
 
-**Ali — the `QA_FIX_LOG.md` doc is structured so you can scan any single test entry and see: the QA finding → root cause → options considered → decision → effort estimate → status.** Push back on any disposition you disagree with.
+**Sprint 3 — Backend bug fixes (~2h, needs testing)**:
+2.6.a "+ Add Custom Question" · 7.2.a/7.3.a sync `conversationState` write · 7.7.a `rejectedFromStage` schema + populate · 7.7.b two-tier rejection message · 8.5.a drag landing on cards · 8.5.b guard re-firing WhatsApp sim on backward drag
+
+**Sprint 4 — Features (~3h)**:
+4.4.a rewrite `/talent-matches` algorithm (hard-gate required skills, drop `storedScore` carryover) · 4.8.b `/candidates/:id/history` endpoint + frontend wiring · 7.6.b Domain Knowledge in overall formula
+
+**Sprint 5 — Data cleanup (~1h, one-shot)**:
+4.3.a soft-close duplicate jobs · 7.6.a.iii Talent Pool dedupe by identity
+
+**Blocked**: 1.1.a favicon (awaiting HireIQ logo PNG/SVG from Saad).
+
+**Target**: ship Sprints 1-5 sequentially with QA retest after each. Tag **v1.11.0** after full retest passes.
+
+### 6 items deferred to Phase 7
+
+3.10.b persist original PDF · 4.3.c DB uniqueness guard · 4.4.c Claude per-job re-score · 7.6.a.ii CV Match backfill for stale L1+ · 7.6.c recruiter-editable score weights · 7.7.c proactive rejection WhatsApp
+
+### 4 verified-Pass no-action
+
+5.3 · 8.6 · 8.7 · 8.8
+
+**Ali — `QA_FIX_LOG.md` has per-test detail: QA finding → root cause → options considered → decision → effort. `docs/SPRINT_PLAN.md` has the execution order. Push back on any disposition you disagree with.**
 
 ## Tomorrow's Open Items (carry-over)
 

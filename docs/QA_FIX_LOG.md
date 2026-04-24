@@ -452,3 +452,75 @@ Also surfaced a related bug: backward drag from L2+ to L1 re-fires WhatsApp scre
   ```
 - **Effort**: 5 min.
 - **Status**: agreed.
+
+---
+
+## Test 8.6 — Stage history JSON (QA rating: Fail → verified PASS)
+
+Live DB query against the highest-transitions candidate (Raj Cloud Krishnamurthy, 5 transitions) returned a fully-populated `pipelineStageHistory` JSON:
+
+```json
+[
+  { "from": "evaluated",    "to": "shortlisted",   "userId": "...", "timestamp": "2026-04-19T13:22:40Z" },
+  { "from": "shortlisted",  "to": "interviewing",  "userId": "...", "timestamp": "2026-04-23T11:16:48Z" },
+  { "from": "interviewing", "to": "offered",       "userId": "...", "timestamp": "2026-04-23T11:20:10Z" },
+  { "from": "offered",      "to": "interviewing",  "userId": "...", "timestamp": "2026-04-23T11:20:38Z" },
+  { "from": "interviewing", "to": "offered",       "userId": "...", "timestamp": "2026-04-23T11:20:47Z" }
+]
+```
+
+Forward moves + backward moves both captured with full metadata. Test's Expected (*"JSON contains both transitions"*) is satisfied.
+
+**Verdict: PASS.** Flip in the QA plan. Likely Fail-rating was because the history isn't UI-visible (lives on the candidate row, never surfaced to recruiters). If Saad wants a UI audit-trail view, that's a new feature request — not this test's scope.
+
+---
+
+## Test 8.7 — Hold recommendation reason (QA rating: Pass — verified ✓)
+
+Live query found 3 candidates with `aiRecommendation='hold'`, all with "Borderline"-family reasoning as expected:
+- Nadia Hussain: *"Borderline composite (62.6) — review carefully before interview"*
+- Nadia Hussain: *"Borderline match (composite 66.6) — review carefully"*
+- Omar Al-Mansoori: *"High CV match (83.8) but vague screening answers (commitment 62) — worth a call"*
+
+**Verdict: PASS confirmed.** No action.
+
+---
+
+## Test 8.8 — Reject recommendation reason (QA rating: Pass — verified ✓)
+
+Live query found 5 candidates with `aiRecommendation='reject'`, all with "Missing must-have:"-family reasoning as expected:
+- Layla Hassan: *"Missing must-have: 3+ years of experience in cloud architecture..."*
+- Zainab Khan: *"Missing must-have: Candidate is significantly overqualified..."* (unusually long — Claude gave a multi-factor narrative)
+- Omar Al-Mansoori: *"Missing must-have: Deep expertise in AWS..."*
+- بلال طارق: *"Missing must-have: Minimum 6 years of proven work experience..."*
+- Zainab Khan: *"Missing must-have: 3+ years of experience in cloud architecture..."*
+
+**Verdict: PASS confirmed.** One incidental finding — Zainab's multi-factor reason is >400 chars and reinforces why 8.2.a (click-to-expand) matters for the drawer display.
+
+---
+
+# Summary — QA Review Complete
+
+**Total tests**: 85 (80% Pass · 12% Partial · 8% Fail as rated by Saad)
+
+**After verification** (three rating flips):
+- 5.3 TP Job History: Fail → **Pass** (section renders; content gap covered by 4.8)
+- 8.6 Stage history JSON: Fail → **Pass** (backend correctly populates the audit)
+- Net: 3 fewer Fails.
+
+### Agreed fixes (to ship) — 26 items
+
+Copy/UI (Sprint 1): 1.1.b · 2.3.a · 2.4.a · 2.4.b · 2.5.a · 2.6.b · 2.6.c · 4.3.b · 5.6.a (covers 8.3) · 7.6.a.i
+Drawer (Sprint 2): 3.9.a · 3.10.a · 4.8.a · 8.2.a
+Backend bug fixes (Sprint 3): 2.6.a · 7.2.a / 7.3.a · 7.7.a · 7.7.b · 8.5.a · 8.5.b
+Features (Sprint 4): 4.4.a · 4.8.b · 7.6.b
+Data cleanup (Sprint 5): 4.3.a · 7.6.a.iii
+Awaiting logo from Saad: 1.1.a
+
+### Deferred to Phase 7 — 6 items
+
+3.10.b (persist original PDF) · 4.3.c (DB uniqueness guard) · 4.4.c (Claude re-score) · 7.6.a.ii (CV Match backfill for stale L1+) · 7.6.c (recruiter-editable weights) · 7.7.c (proactive rejection WhatsApp)
+
+### Verified Pass, no action — 3 items
+
+5.3 TP Job History renders · 8.6 stage history JSON · 8.7 hold reason · 8.8 reject reason
