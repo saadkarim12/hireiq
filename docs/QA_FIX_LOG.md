@@ -44,3 +44,44 @@ Saad's note: *"Country: It shows UK and Ksa which was in original design. It nee
 - **Fix**: Delete the `GB` and `US` entries from the `COUNTRIES` array in `frontend/src/app/(dashboard)/jobs/new/page.tsx:69-76`.
 - **Effort**: 2 min.
 - **Status**: agreed.
+
+---
+
+## Test 2.4 — Job Creation Wizard / Step 2 JD (QA rating: Partial)
+
+Saad's note: *"By default.. Paste JD should appear and AI Builder come on right side so that If someone wants to use he can click on it."*
+
+### 2.4.a — Flip default to Paste JD, swap tab order
+- **Issue**: Step 2 defaults to AI Builder (5-question form). Most recruiters evaluating HireIQ already have a JD; forcing them through the form adds friction at the first impression. The real product wedges (screening questions, CV parsing, WhatsApp screening, scoring) demonstrate themselves later in the flow — the JD builder is nice but not the wedge.
+- **Fix**: In `frontend/src/app/(dashboard)/jobs/new/page.tsx`: change default `jdMode: 'builder'` → `'paste'` (line 159). Swap the tab order so `📋 Paste JD` renders first (left), `✨ AI Builder` second (right) (lines 487-496). Default visual scan lands on Paste.
+- **Effort**: 5 min.
+- **Status**: agreed.
+
+### 2.4.b — (Optional) Discovery hint for AI Builder
+- **Issue**: If Paste becomes default, recruiters without a JD in hand might miss the AI Builder tab.
+- **Fix**: Add a small helper line under the Paste textarea: *"Don't have a JD yet? Use AI Builder →"* linking to the AI tab.
+- **Effort**: 10 min.
+- **Status**: pending decision (not explicitly approved — ship with 2.4.a if we want the polish, drop if not).
+
+---
+
+## Test 2.5 — Job Creation Wizard / Step 3 Screening Criteria (QA rating: Partial)
+
+Saad's note: *"Auto-approve – WhatsApp immediately. Word immediately is slightly misleading as recruiter can still approve or reject like for others. We can color code it but let recruiter to decide …. Am I correct"*
+
+Saad is correct, and the issue is deeper than copy. Investigation showed the threshold block in Step 3 (`jobs/new/page.tsx:660-695`) has two problems:
+
+**1. Copy contradicts current product behaviour.** Since Phase 6j (v1.7.0) every stage transition requires the recruiter's Approve-to-Lx click. There is no auto-approve, no auto-reject, no rejection emails fired without recruiter action. The "Auto-approve / WhatsApp immediately" and "Auto-reject / Rejection email sent" copy describes a product behaviour we deleted.
+
+**2. The threshold inputs are dead.** Traced through the pipeline:
+- Wizard submits `autoApproveThreshold` + `autoRejectThreshold` in the POST body
+- `routes/jobs.ts:80-81` destructures the body but does NOT include these fields — silently ignored
+- `schema.prisma` Job model has no columns for them
+- `recommendForL1` in `shared/recommendations.ts` has hardcoded thresholds (55 for reject, 75 for advance) with no per-job override
+- Result: recruiters adjust sliders that do nothing
+
+### 2.5.a — Remove the dead threshold UI, replace with a read-only legend (Option C)
+- **Decision**: Option C (from three options A=copy-fix-only, B=reframe-and-wire-through, C=remove). The sliders don't do anything today; making them work (Option B) would be a new feature ("per-job threshold tuning") that nobody's asked for. Cheapest and most honest move is to ship the truth now and defer tunability until there's real demand.
+- **Fix**: In `frontend/src/app/(dashboard)/jobs/new/page.tsx:660-695`, replace the 3-box threshold UI + summary paragraph with a short read-only legend explaining AI Recommendation Bands: *"AI flags candidates as ✅ Advance (≥75), ⚠️ Hold (55-74), or ❌ Reject (<55). You decide whether to move them forward."* Drop `autoApproveThreshold` / `autoRejectThreshold` from the form schema (lines 41-42) + submit payload (line 228) since they're dead.
+- **Effort**: 30 min.
+- **Status**: agreed.
