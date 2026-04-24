@@ -36,7 +36,7 @@ Saad orchestrates five specialised AI advisors, each in a separate Claude chat. 
 - Second demo: **DigyCorp** (direct employer variant)
 - Target: UAE + KSA large recruitment agencies
 - Repo: github.com/saadkarim12/hireiq
-- Current tag: v1.6.0
+- Current tag: v1.11.0
 
 ## Tech Stack
 - **Frontend**: Next.js 14 (App Router), TypeScript, Tailwind, TanStack Query, shadcn/ui
@@ -181,6 +181,19 @@ Plus 10 Cloud Architect pipeline candidates (Omar Farouk, Ahmed Al-Rashidi, Sara
 **v1.9.0 — Dashboard KPIs aligned with Phase 6k + Awaiting Review KPI.** "In Screening" filter was pointing at the dead `screening` stage → always 0. Fixed to `shortlisted` + `conversationState=screening_q*`. WhatsApp Response Rate formula rewritten. New "Awaiting Review" KPI (applied/evaluated with aiRecommendation set). Two labeled rows: Action Items (Awaiting Review / In Screening / Shortlisted / Interviewing) and Performance (CVs Processed / Conversion Rate / WhatsApp Response Rate / Talent Pool Size).
 
 **v1.10.0 — Analytics v1.** Owner-facing performance rollup at `/analytics`. Period pills (30/90/180/365d, gold active), optional job-filter dropdown. 4 KPI cards (Active Jobs agency-wide, Avg Time to Fill, Hire Rate, Cost per Hire as "Coming Soon" pill). Pipeline Funnel with count + %-of-applied labels + drop-off strip. Time-at-Stage horizontal bars coloured green <3d / amber 3-7d / red 7d+. Source Performance table. Recruiter Performance as Phase 7 stub. Empty states per chart with sensible thresholds.
+
+### 2026-04-24 → 2026-04-29 — QA v1.2 → v1.11.0 (5 sprints, 27 fixes)
+
+**v1.11.0 — QA hardening release.** All 85 tests from `HireIQ_QA_Test_Plan_v1.3.docx` retested green, every row has commit hash. Ali approved the sprint plan with 8 additions; shipped sequentially per gate.
+
+- **Sprint 1** (`2778b53`) — Copy + cosmetic: sidebar Loading fix, country list UAE/KSA/others (dropped UK/US), JD Builder Step 2 defaults swap, 2.5.a read-only AI Recommendation Bands legend, Approve modal rewrite, drawer empty state for null-score L1+ candidates.
+- **Sprint 2** (`1aac4d6`) — Drawer improvements: WhatsApp number in Key Details, always-show Download CV with blob handler, "Applied Jobs" → "Application History", click-to-expand AI recommendation with stage-transition label.
+- **Sprint 3** (`e640cc5`) — Backend bug fixes: "+ Add Custom Question" + auto-translate stub, sync `conversationState=screening_q1` write before async sim (7.2.a/7.3.a race fix), `rejectedFromStage` schema + two-tier rejection WhatsApp copy, kanban drop-on-cards mapping, L1 sim re-fire guard.
+- **Sprint 4** (`1879d8e`) — Features: `/talent-matches` algorithm rewrite (required/preferred split, hard gate ≤ 50% required-match, Phase 8 TODO), `/candidates/:id/history` real endpoint + frontend ApplicationHistoryBlock, Domain Knowledge (7.6.b) in overall formula.
+- **Sprint 5** (`625a152`) — Data cleanup + guard: soft-closed 13 duplicate/stale jobs, 4.3.c DB uniqueness guard (POST returns 409 DUPLICATE_JOB + `/check-duplicate` pre-check), Talent Pool dedupe by identity (email → waNumberHash, shows applicationCount + bestCompositeScore). End state: exactly 4 active demo jobs (Cloud Architect–DigyCorp · Enterprise Architect–DigyCorp · Finance Manager–Salt Recruitment · Senior HR Business Partner–Salt Recruitment).
+
+**Blocked** (Saad unblock): 1.1.a favicon — awaiting HireIQ logo asset. Defaults to generic globe.
+**Deferred to Phase 7**: 3.10.b PDF persistence · 4.4.c Claude per-job re-score · 7.6.a.ii CV-match backfill · 7.6.c editable weights · 7.7.c proactive rejection WA.
 
 ## QA v1.2 Review — COMPLETE (2026-04-24, for Ali)
 
