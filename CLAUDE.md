@@ -160,18 +160,40 @@ Plus 10 Cloud Architect pipeline candidates (Omar Farouk, Ahmed Al-Rashidi, Sara
 
 **v1.10.0 — Analytics v1.** Owner-facing performance rollup at `/analytics`. Period pills (30/90/180/365d, gold active), optional job-filter dropdown. 4 KPI cards (Active Jobs agency-wide, Avg Time to Fill, Hire Rate, Cost per Hire as "Coming Soon" pill). Pipeline Funnel with count + %-of-applied labels + drop-off strip. Time-at-Stage horizontal bars coloured green <3d / amber 3-7d / red 7d+. Source Performance table. Recruiter Performance as Phase 7 stub. Empty states per chart with sensible thresholds.
 
-## Tomorrow's Open Items
+## In Progress — QA v1.2 Review (started 2026-04-24, for Ali)
+
+Saad and I are working through `docs/HireIQ_QA_Test_Plan_v1.2.docx` one test at a time. Every agreed fix, deferred item, and decision is being logged in `docs/QA_FIX_LOG.md` — **that's the authoritative doc for where each test landed**. CLAUDE.md just tracks the high-level status.
+
+**QA results summary**: 85 tests · 68 Pass (80%) · 10 Partial · 7 Fail.
+
+**Progress as of 2026-04-24 end-of-day** (10 of ~17 non-Pass tests triaged):
+
+| Test | QA status | Disposition |
+|---|---|---|
+| 1.1 | Partial | **agreed** — favicon + drop `Loading...` conditional in Sidebar |
+| 2.3 | Partial | **agreed** — remove UK/USA from country dropdown (keep all 6 GCC) |
+| 2.4 | Partial | **agreed** — flip Step 2 default to Paste JD + swap tab order + discovery hint |
+| 2.5 | Partial | **agreed** — **Option C** — remove the dead threshold block (sliders didn't wire through; copy contradicted the "AI proposes, recruiter decides" principle) |
+| 2.6 | Pass (but feature ask) | **agreed** — add custom-question button + drop the unbacked "reorder" promise + English-only helper |
+| 3.9 | Pass (but feature ask) | **agreed** — add WhatsApp number to Key Details grid across all 3 drawer contexts |
+| 3.10 | Partial | **agreed** — always show Download CV (backend already synthesises text CV from `cvStructured`); 3.10.b (persist original PDF) deferred to Phase 7 |
+| 4.3 | Fail | **agreed** — 12 duplicate test jobs in DB → soft-close older copies; add creation-date suffix to dropdown labels |
+| 4.4 | Partial | **agreed** — rewrite `/talent-matches` match algorithm: hard-gate required skills, drop cross-job `storedScore` contamination, restrict skill-match to declared `cvSkills[]` not raw CV text |
+| 4.8 | Fail | *in discussion* |
+
+**Still to triage**: 4.8, 5.3, 7.2, 7.3, 7.6, 8.2, 8.3, 8.5, 8.6.
+
+**No code changes yet** — we're agreeing scope and rationale first, then landing the fixes in batched commits (probably one commit per module). No tag planned until 100% of agreed fixes ship and Saad retests.
+
+**Ali — the `QA_FIX_LOG.md` doc is structured so you can scan any single test entry and see: the QA finding → root cause → options considered → decision → effort estimate → status.** Push back on any disposition you disagree with.
+
+## Tomorrow's Open Items (carry-over)
 
 ### Reema chatbot — Phase 7 P3 candidate
 Internal agency assistant idea mentioned in planning. Needs scoping: who is Reema for (recruiter query assistant? candidate-facing?), what capabilities, where she lives in the UI. Pushed to Phase 7 pending product brief. **Ask Saad for the spec** before any code.
 
-### QA Test Plan v1.0 needs Module 11 for Analytics
-Saad maintains the QA Test Plan document separately (not in this repo's `docs/` folder as of 2026-04-20). Analytics v1 shipped today with no test module covering it. **When next working with Saad, confirm where the plan lives and either author Module 11 or hand him the test cases to paste in.** Rough coverage for Module 11:
-- Period filter changes counts across all charts
-- Job filter narrows everything except Active Jobs
-- Empty states trigger at the right thresholds (applied<5, transitions<3, sources<2)
-- Responsive layout — 2x2 KPI grid on mobile, 1x4 on desktop
-- Cost per Hire shows "Coming Soon" pill (not `$0`)
+### QA Test Plan has Module 11 for Analytics (v1.2 shipped 2026-04-23)
+✅ Resolved — `docs/HireIQ_QA_Test_Plan_v1.2.docx` landed with Module 11 coverage (7 cases).
 
 ### Phase 7 sequencing decision
 Phase 7 scope list has been accumulating without ordering. Candidates include:

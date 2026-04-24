@@ -171,3 +171,32 @@ Investigation showed the "duplicates" are not a code bug — the backend returns
 - **Idea**: Add a constraint or soft-warning when recruiter tries to create a second active job with the same (title, hiringCompany). Prevents future pollution at the point of creation.
 - **Effort**: 1h.
 - **Status**: deferred (Phase 7 hardening pass).
+
+---
+
+## Test 4.4 — Talent Pool Match Filter Returns Irrelevant Roles (QA rating: Partial)
+
+Saad's note: *"Filter is not working correctly. I click on the job I created during QA test and it shows Enterprise Architect and Cloud DevOps Engineer roles which are not relevant. Some are fine and some are not."*
+
+Investigation of `GET /jobs/:jobId/talent-matches` in `bulk-upload.ts:122-198` surfaced four stacked mistakes in the matching algorithm:
+
+1. **Required + preferred skills pooled together** (lines 152-155). Matching 1 preferred skill counts the same as matching 1 required skill. No hard gate on required.
+2. **Loose string contains on full CV text** (line 166, `cvText.includes(skill.toLowerCase())`). A candidate with "DevOps" buried in an old project description still matches *"DevOps"* even if they're now a full-time Enterprise Architect.
+3. **Threshold 55 is permissive.** With a 2-skill job + 1 skill matched + storedScore 75: blended = `75×0.4 + 50×0.6 = 60`, passes.
+4. **`storedScore` from a different job carries over.** The 40% weight pulls in the composite from the candidate's previous application (maybe for a totally unrelated role).
+
+### 4.4.a — Rewrite the match algorithm
+- **Fix**: In `bulk-upload.ts:151-192`:
+  - Split `requiredSkills` and `preferredSkills` explicitly.
+  - **Hard gate**: drop candidates who match < 50% of `requiredSkills` (unless the job has none).
+  - **Scoring**: `skillScore = requiredMatchPct × 70 + preferredMatchPct × 30`. No cross-job `storedScore` contamination.
+  - **String match**: only search `cvSkills[]` (actual declared skills), not the raw JSON body.
+- **Expected outcome**: Enterprise Architects no longer appear for Cloud Architect jobs unless they genuinely have the required cloud-architecture skills listed in their CV.
+- **Effort**: 45 min.
+- **Status**: agreed.
+
+### 4.4.c — Claude-based per-job re-score (deferred to Phase 7)
+- **Idea**: Run `/score-cv` for each pool candidate against the selected job. Actual AI scoring, not string match.
+- **Why deferred**: ~100 Claude calls per dropdown change. Needs rate-limiting + caching infrastructure. Revisit when pgvector vector-search pipeline lands in Phase 7.
+- **Effort**: ~half-day with caching.
+- **Status**: deferred.
