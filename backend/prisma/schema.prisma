@@ -229,6 +229,7 @@ model Candidate {
   dataTags                    Json              @default("{}") @map("data_tags")
   pipelineStage               PipelineStage     @default(applied) @map("pipeline_stage")
   pipelineStageHistory        Json              @default("[]") @map("pipeline_stage_history")
+  rejectedFromStage           String?           @map("rejected_from_stage") @db.VarChar(30)
   rejectionReason             String?           @map("rejection_reason") @db.VarChar(100)
   recruiterNote               String?           @map("recruiter_note")
   aiRecommendation            String?           @map("ai_recommendation") @db.VarChar(30)

@@ -114,6 +114,20 @@ candidatesRouter.patch('/:id/status', async (req: AuthRequest, res) => {
     if (pipelineStage === 'hired') updates.hiredAt = new Date()
     if (pipelineStage === 'rejected') {
       updates.deletionScheduledAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+      // 7.7.a — remember which stage the recruiter rejected from, so the
+      // candidate's WhatsApp status-query response can be stage-aware.
+      updates.rejectedFromStage = candidate.pipelineStage
+    }
+
+    // 7.2.a / 7.3.a — When entering L1, synchronously mark conversationState as
+    // screening_q1 BEFORE firing the async sim. Eliminates the race where a
+    // fast post-PATCH refetch sees the pre-sim state and the "🔄 Screening…"
+    // badge never renders. 8.5.b — only fire on genuine L1 entry, not on
+    // backward drag from L2+ (which would re-run screening wastefully).
+    const enteringL1 = pipelineStage === 'shortlisted'
+      && ['applied', 'evaluated', 'screening'].includes(candidate.pipelineStage || '')
+    if (enteringL1) {
+      updates.conversationState = 'screening_q1'
     }
 
     // Append stage transition to audit history
@@ -159,7 +173,10 @@ candidatesRouter.patch('/:id/status', async (req: AuthRequest, res) => {
     // Fire-and-forget: return immediately so the drag/click feels instant;
     // the sim runs async (~15-30s Claude calls) and the frontend polls /refetches
     // on the kanban to see composite scores appear when done.
-    const enteringL1 = pipelineStage === 'shortlisted' && prevStage !== 'shortlisted'
+    // conversationState='screening_q1' was already written synchronously above
+    // (see 7.2.a/7.3.a) so the refetch immediately after this PATCH sees
+    // in-progress state. 8.5.b gating on prevStage ∈ pre-screening stages
+    // prevents re-running screening on backward drag from L2+.
     if (enteringL1) {
       logger.info(`L1 entry triggered for ${updated.id} — firing WhatsApp simulation async`)
       fetch(`http://localhost:${process.env.WHATSAPP_PORT || 3003}/mock/simulate-screening`, {

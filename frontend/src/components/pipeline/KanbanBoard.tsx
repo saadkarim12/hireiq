@@ -49,16 +49,41 @@ export function KanbanBoard({ stages, candidates, pipelineCounts, onCandidateCli
     if (!over || active.id === over.id) return
 
     const candidateId = active.id as string
-    const newStage = over.id as PipelineStage
+    const overId = over.id as string
 
-    // Check if dropped on a column (not another card)
-    const isColumn = stages.some(s => s.key === newStage)
-    if (!isColumn) return
+    // 8.5.a — with closestCorners collision, dropping onto a column that
+    // already has cards often picks one of those cards as `over` instead of
+    // the column background. Map card → parent column so these drops land
+    // instead of silently failing.
+    let targetStage: PipelineStage | undefined
+    if (stages.some(s => s.key === overId)) {
+      // Dropped directly on a column
+      targetStage = overId as PipelineStage
+    } else {
+      // Dropped on a candidate card — look up which column contains that card
+      const overCard = candidates.find(c => c.id === overId)
+      if (overCard) {
+        const col = stages.find(s =>
+          s.key === overCard.pipelineStage ||
+          (s as any).stages?.includes(overCard.pipelineStage)
+        )
+        if (col) targetStage = col.key
+      }
+    }
+    if (!targetStage) return
 
     const candidate = candidates.find(c => c.id === candidateId)
-    if (!candidate || candidate.pipelineStage === newStage) return
+    if (!candidate) return
 
-    onStageChange(candidateId, newStage)
+    // Find the column the dragged candidate currently belongs to (accounts for
+    // multi-stage columns like 'applied' which covers applied/evaluated/screening).
+    const currentCol = stages.find(s =>
+      s.key === candidate.pipelineStage ||
+      (s as any).stages?.includes(candidate.pipelineStage)
+    )
+    if (currentCol?.key === targetStage) return  // same column, no-op
+
+    onStageChange(candidateId, targetStage)
   }
 
   return (

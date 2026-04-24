@@ -36,25 +36,38 @@ const MSG = {
   processingEn: () =>
     `✅ We've received your application! Our team is reviewing your profile.\n\nYou'll hear back within 24-48 hours.\n\nType *status* at any time to check your application status.`,
 
-  statusAr: (stage: string) => {
+  // 7.7.b — Rejection response is stage-aware: pre-screening rejections get a
+  // lighter "background fit" message, post-screening ones acknowledge the
+  // candidate's effort (questions answered, interview attended).
+  statusAr: (stage: string, rejectedFromStage?: string | null) => {
+    if (stage === 'rejected') {
+      const fromPost = ['interviewing', 'offered'].includes(rejectedFromStage || '')
+      return `حالة طلبك: ${fromPost
+        ? 'شكراً لك على وقتك خلال عملية التقييم. قررنا المضي قدماً مع مرشح آخر لهذا الدور، لكننا تأثرنا بجهودك وسنحتفظ بملفك للفرص المستقبلية.'
+        : 'شكراً لتقديمك. بعد مراجعة ملفك، قررنا المتابعة مع مرشحين آخرين تتوافق خلفيتهم بشكل أقرب مع هذا الدور المحدد. سنحتفظ ببياناتك للفرص المستقبلية.'}`
+    }
     const stages: Record<string, string> = {
       applied: 'طلبك قيد المراجعة',
       screening: 'جارٍ تقييم طلبك',
       shortlisted: '🌟 تهانينا! أنت في القائمة المختصرة',
       interviewing: '📅 سيتم التواصل معك لتحديد موعد المقابلة',
-      rejected: 'نعتذر، تم اختيار مرشحين آخرين لهذا الدور',
       hired: '🎉 مبروك! تم قبولك',
     }
     return `حالة طلبك: ${stages[stage] || 'قيد المراجعة'}`
   },
 
-  statusEn: (stage: string) => {
+  statusEn: (stage: string, rejectedFromStage?: string | null) => {
+    if (stage === 'rejected') {
+      const fromPost = ['interviewing', 'offered'].includes(rejectedFromStage || '')
+      return `Application status: ${fromPost
+        ? 'Thank you for taking the time to engage in our screening process. We\'ve decided to proceed with another candidate for this role but were impressed with your effort, and we\'ll keep your profile on file for future opportunities.'
+        : 'Thank you for applying. After reviewing your profile, we\'ve decided to proceed with other candidates whose background is closer to this specific role. We\'ll keep your details for future opportunities.'}`
+    }
     const stages: Record<string, string> = {
       applied: 'Your application is under review',
       screening: 'Your application is being evaluated',
       shortlisted: '🌟 Congratulations! You have been shortlisted',
       interviewing: '📅 You will be contacted to schedule an interview',
-      rejected: 'We regret that other candidates were selected for this role',
       hired: '🎉 Congratulations! You have been selected',
     }
     return `Application status: ${stages[stage] || 'Under review'}`
@@ -93,9 +106,10 @@ export async function handleIncomingMessage(params: {
     })
     if (candidate) {
       const lang = candidate.preferredLanguage || 'en'
+      const rejectedFrom = (candidate as any).rejectedFromStage || null
       const msg  = lang === 'ar'
-        ? MSG.statusAr(candidate.pipelineStage)
-        : MSG.statusEn(candidate.pipelineStage)
+        ? MSG.statusAr(candidate.pipelineStage, rejectedFrom)
+        : MSG.statusEn(candidate.pipelineStage, rejectedFrom)
       await sendMessage({ agencyId, waNumber, message: msg })
       return
     }

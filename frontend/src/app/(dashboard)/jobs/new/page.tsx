@@ -764,6 +764,29 @@ export default function NewJobPage() {
           </div>
         )}
 
+        {/* 2.6.a — Recruiter-authored custom question */}
+        {vals.screeningQuestions?.length > 0 && (
+          <div>
+            <button type="button"
+              onClick={() => {
+                const newQ = {
+                  id: `custom-${Date.now()}`,
+                  type: 'skill_probe' as const,
+                  questionTextEn: '',
+                  questionTextAr: '',
+                  rationale: 'Custom question added by recruiter',
+                }
+                setValue('screeningQuestions', [...(vals.screeningQuestions || []), newQ])
+              }}
+              className="w-full border-2 border-dashed border-gray-200 rounded-xl py-3 text-sm font-medium text-gray-500 hover:border-emerald-400 hover:text-emerald-700 transition-colors">
+              + Add Custom Question
+            </button>
+            <p className="text-xs text-gray-400 mt-2 leading-relaxed">
+              Custom questions are English-only in this release. Candidates on Arabic will receive the English version. Arabic auto-translation coming in Phase 7.
+            </p>
+          </div>
+        )}
+
         {/* What happens on activate */}
         <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 space-y-1.5">
           <p className="text-sm font-medium" style={{color:'#0A3D2E'}}>What happens when you activate:</p>
