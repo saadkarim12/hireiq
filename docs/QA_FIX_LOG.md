@@ -200,3 +200,41 @@ Investigation of `GET /jobs/:jobId/talent-matches` in `bulk-upload.ts:122-198` s
 - **Why deferred**: ~100 Claude calls per dropdown change. Needs rate-limiting + caching infrastructure. Revisit when pgvector vector-search pipeline lands in Phase 7.
 - **Effort**: ~half-day with caching.
 - **Status**: deferred.
+
+---
+
+## Test 4.8 — Talent Pool drawer "Applied Jobs" shows no history (QA rating: Fail)
+
+Saad's note: *"I can see only Applied Jobs with no history"*
+
+Investigation of `CandidatePanel.tsx` showed the Job History section I wrote during yesterday's drawer unification is a stub — one hardcoded card that reads from the current candidate's own `dataTags.jobTitle` / `currentRole` fields. It never queries across applications, so it only ever shows one row (the current one). Additionally the section label "Applied Jobs" reads ambiguously (stage-filter vs application-history).
+
+### 4.8.a — Rename section label
+- **Fix**: In `frontend/src/components/candidates/CandidatePanel.tsx` (Talent Pool job-history block), change the `"Applied Jobs"` heading to `"Application History"`. Removes the stage-vs-history ambiguity.
+- **Effort**: 2 min.
+- **Status**: agreed.
+
+### 4.8.b — Implement real application-history query
+- **Backend**: new endpoint `GET /api/v1/candidates/:id/history`. Returns all candidates sharing `waNumberHash` OR `email` with the current one, scoped to the same agency, excluding the current record. Response: `[{ id, jobTitle, hiringCompany, pipelineStage, createdAt, compositeScore }]`. Pattern already proven by `checkReturningCandidate` in `score-candidate.ts:145-169`.
+- **Frontend**: in TP context of `CandidatePanel`, `useQuery(['candidate-history', id])` on drawer mount. Render each row as a card with role · company · stage · date · score chip.
+- **Empty state**: if the candidate has no prior applications, render *"This is their first application."* instead of a blank list.
+- **Privacy**: agency-scoped by the query filter; no new PDPL-sensitive data exposed.
+- **Effort**: ~50 min.
+- **Status**: agreed.
+
+---
+
+## Test 5.6 — Approve-to-L1 confirmation modal exposes API costs (QA rating: Pass)
+
+Saad's note: *"But we don't want to show the API cost to customer. We can have warning but don't mention the cost for API calls"*
+
+The modal I shipped included "~$0.06 in API costs" in the body and "Each screening uses paid Claude API calls" in the amber warning. Customer-facing text shouldn't leak infrastructure billing language ("API", "Claude", per-call pricing). The right framing is user-impact — screening sends a real WhatsApp to a real person and can't be undone — not infrastructure cost.
+
+### 5.6.a — Rewrite modal text to drop cost/API language
+- **Fix**: In `frontend/src/components/candidates/CandidatePanel.tsx` Approve-to-L1 modal block (~line 484), update body + amber copy:
+  - Body: *"Approve [Name] to Level 1? This starts WhatsApp screening — 5 personalised questions will be sent and evaluated by AI."*
+  - Amber: *"⚠️ Once started, screening is irreversible — the candidate receives the 5 questions immediately."*
+- **Keep** title and buttons as-is.
+- **Applies to both** CV Inbox context and Pipeline-Applied context (same modal component, single edit).
+- **Effort**: 5 min.
+- **Status**: agreed.
