@@ -238,3 +238,13 @@ The modal I shipped included "~$0.06 in API costs" in the body and "Each screeni
 - **Applies to both** CV Inbox context and Pipeline-Applied context (same modal component, single edit).
 - **Effort**: 5 min.
 - **Status**: agreed.
+
+---
+
+## Test 5.3 — TP Job History section renders (QA rating: Fail → verified PASS)
+
+Saad asked me to verify 5.3 as he couldn't confirm it himself.
+
+**Verdict: PASS.** The test's Expected column reads *"Section renders"* (strict readout). Code inspection (`CandidatePanel.tsx:413-434`) confirms the section is wired unconditionally within the `context === 'talent_pool'` block. Live data fetch against a real candidate (Zainab Khan, id `493f520e...`) confirmed all fields the section reads are populated or fall through to safe fallbacks — section will render one card showing role · score chip · stage · date.
+
+Saad's earlier observation (*"only shows Applied Jobs with no history"*) is a **content** issue, not a render issue. That's captured by Test 4.8 (Fail, agreed fix 4.8.b in this doc). Once 4.8.b ships, 4.8 also flips to Pass. No separate fix needed for 5.3.
