@@ -167,10 +167,12 @@ Investigation showed the "duplicates" are not a code bug — the backend returns
 - **Effort**: 5 min.
 - **Status**: agreed.
 
-### 4.3.c — DB uniqueness guard + duplicate warning in wizard (deferred to Phase 7)
-- **Idea**: Add a constraint or soft-warning when recruiter tries to create a second active job with the same (title, hiringCompany). Prevents future pollution at the point of creation.
+### 4.3.c — DB uniqueness guard + duplicate warning in wizard (PROMOTED to Sprint 5 by Ali 2026-04-24)
+- **Backend**: on job create in `routes/jobs.ts`, detect existing active `(agencyId, title, hiringCompany)` combo. Return 409 with *"A job with this title and company is already active. Duplicate?"* message. Accept explicit `allowDuplicate: true` payload field to force-create when recruiter confirms.
+- **Frontend**: wizard Step 1 — on title/company blur, lightweight async check. If duplicate exists, show amber warning below the title field: *"An active '{title}' at {company} already exists. Make sure this is a distinct role before continuing."*
+- **Why promoted**: cheap insurance against re-pollution of the demo environment after 4.3.a cleans the data.
 - **Effort**: 1h.
-- **Status**: deferred (Phase 7 hardening pass).
+- **Status**: agreed (Sprint 5).
 
 ---
 
@@ -508,18 +510,18 @@ Live query found 5 candidates with `aiRecommendation='reject'`, all with "Missin
 - 8.6 Stage history JSON: Fail → **Pass** (backend correctly populates the audit)
 - Net: 3 fewer Fails.
 
-### Agreed fixes (to ship) — 26 items
+### Agreed fixes (to ship) — 27 items (Ali approved 2026-04-24, promoted 4.3.c from Phase 7)
 
-Copy/UI (Sprint 1): 1.1.b · 2.3.a · 2.4.a · 2.4.b · 2.5.a · 2.6.b · 2.6.c · 4.3.b · 5.6.a (covers 8.3) · 7.6.a.i
+Copy/UI (Sprint 1): 1.1.b · 2.3.a · 2.4.a · 2.4.b · 2.5.a · 2.6.b · 4.3.b · 5.6.a (covers 8.3) · 7.6.a.i
 Drawer (Sprint 2): 3.9.a · 3.10.a · 4.8.a · 8.2.a
-Backend bug fixes (Sprint 3): 2.6.a · 7.2.a / 7.3.a · 7.7.a · 7.7.b · 8.5.a · 8.5.b
-Features (Sprint 4): 4.4.a · 4.8.b · 7.6.b
-Data cleanup (Sprint 5): 4.3.a · 7.6.a.iii
+Backend bug fixes (Sprint 3): 2.6.a · **2.6.c** (moved from Sprint 1 per Ali — ship with 2.6.a) · 7.2.a / 7.3.a · 7.7.a · 7.7.b · 8.5.a · 8.5.b
+Features (Sprint 4): 4.4.a (with Phase 8 TODO comment per Ali) · 4.8.b · 7.6.b
+Data cleanup (Sprint 5): 4.3.a · **4.3.c** (promoted from Phase 7 per Ali) · 7.6.a.iii · end-state: exactly 4 active demo jobs
 Awaiting logo from Saad: 1.1.a
 
-### Deferred to Phase 7 — 6 items
+### Deferred to Phase 7 — 5 items (was 6, 4.3.c promoted out)
 
-3.10.b (persist original PDF) · 4.3.c (DB uniqueness guard) · 4.4.c (Claude re-score) · 7.6.a.ii (CV Match backfill for stale L1+) · 7.6.c (recruiter-editable weights) · 7.7.c (proactive rejection WhatsApp)
+3.10.b (persist original PDF) · 4.4.c (Claude re-score) · 7.6.a.ii (CV Match backfill for stale L1+) · 7.6.c (recruiter-editable weights) · 7.7.c (proactive rejection WhatsApp)
 
 ### Verified Pass, no action — 3 items
 

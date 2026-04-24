@@ -171,36 +171,38 @@ Saad and I triaged every non-Pass test in `docs/HireIQ_QA_Test_Plan_v1.2.docx`. 
 - 8.6 Stage History JSON — Fail → **Pass** (`pipelineStageHistory` correctly populated)
 - 8.7 / 8.8 reasons — **Pass confirmed** with live data
 
-### 26 agreed fixes (to ship) — 5 sprints
+### 27 agreed fixes — 5 sprints (Ali approved 2026-04-24 with 8 additions)
 
 **Sprint 1 — Copy + cosmetic (~2h, low risk)**:
-1.1.b sidebar Loading · 2.3.a country list · 2.4.a+b Step 2 defaults · 2.5.a threshold block → read-only legend · 2.6.b drop "reorder" · 2.6.c English-only helper · 4.3.b dropdown date suffix · 5.6.a Approve modal rewrite (covers 8.3) · 7.6.a.i drawer empty state
+1.1.b sidebar Loading · 2.3.a country list · 2.4.a+b Step 2 defaults · 2.5.a threshold block → read-only legend (**Ali line added**: *"These bands are system-wide. AI recommendations are advisory..."*) · 2.6.b drop "reorder" · 4.3.b dropdown date suffix · 5.6.a Approve modal rewrite (covers 8.3) · 7.6.a.i drawer empty state. **2.6.c moved to Sprint 3 per Ali (ships with the button)**.
 
-**Sprint 2 — Drawer improvements (~2h, focused on CandidatePanel)**:
+**Sprint 2 — Drawer improvements (~2h)**:
 3.9.a WhatsApp number · 3.10.a always-show Download CV + blob handler · 4.8.a rename "Applied Jobs" · 8.2.a click-to-expand AI recommendation
 
-**Sprint 3 — Backend bug fixes (~2h, needs testing)**:
-2.6.a "+ Add Custom Question" · 7.2.a/7.3.a sync `conversationState` write · 7.7.a `rejectedFromStage` schema + populate · 7.7.b two-tier rejection message · 8.5.a drag landing on cards · 8.5.b guard re-firing WhatsApp sim on backward drag
+**Sprint 3 — Backend bug fixes (~2h)**:
+2.6.a "+ Add Custom Question" + 2.6.c **Phase 7 auto-translate** helper · 7.2.a/7.3.a sync `conversationState` write · 7.7.a `rejectedFromStage` schema + populate · 7.7.b two-tier rejection message · 8.5.a drag landing on cards · 8.5.b guard re-firing WhatsApp sim
 
-**Sprint 4 — Features (~3h)**:
-4.4.a rewrite `/talent-matches` algorithm (hard-gate required skills, drop `storedScore` carryover) · 4.8.b `/candidates/:id/history` endpoint + frontend wiring · 7.6.b Domain Knowledge in overall formula
+**Sprint 4 — Features (~3-5h)**:
+4.4.a rewrite `/talent-matches` algorithm (hard-gate, drop storedScore carryover, **Ali's Phase 8 TODO at the constant**) · 4.8.b `/candidates/:id/history` endpoint + frontend · 7.6.b Domain Knowledge in overall formula
 
-**Sprint 5 — Data cleanup (~1h, one-shot)**:
-4.3.a soft-close duplicate jobs · 7.6.a.iii Talent Pool dedupe by identity
+**Sprint 5 — Data cleanup + guard + demo target (~1.5h)**:
+4.3.a soft-close duplicate jobs · **4.3.c** DB uniqueness guard + wizard warn (promoted from Phase 7) · 7.6.a.iii Talent Pool dedupe by identity · **end state: exactly 4 active demo jobs** (Cloud Architect–DigyCorp · Enterprise Architect–DigyCorp · Finance Manager–Salt Recruitment · Senior HR Business Partner–Salt Recruitment)
 
-**Blocked**: 1.1.a favicon (awaiting HireIQ logo PNG/SVG from Saad).
+**Blocked**: 1.1.a favicon (awaiting HireIQ logo from Saad).
 
-**Target**: ship Sprints 1-5 sequentially with QA retest after each. Tag **v1.11.0** after full retest passes.
+**Retest model** (Ali's spec): Mansur runs retests after each sprint (not Saad). Browser click-through of all fixed tests + 5 adjacent-module regression spot-checks + update `HireIQ_QA_Test_Plan_v1.3.docx` with Pass/Fail + commit hash. Hotfix in same sprint if anything fails. Saad validates once after v1.11.0 ships.
 
-### 6 items deferred to Phase 7
+**v1.11.0 tag gate**: all 5 sprints shipped · full 85-test retest green · QA v1.3 doc complete (every row has Retest Result + Commit Hash) · CLAUDE.md updated · 4 active demo jobs · comprehensive tag message.
 
-3.10.b persist original PDF · 4.3.c DB uniqueness guard · 4.4.c Claude per-job re-score · 7.6.a.ii CV Match backfill for stale L1+ · 7.6.c recruiter-editable score weights · 7.7.c proactive rejection WhatsApp
+### 5 items deferred to Phase 7 (was 6 — 4.3.c promoted out)
+
+3.10.b persist original PDF · 4.4.c Claude per-job re-score · 7.6.a.ii CV Match backfill for stale L1+ · 7.6.c recruiter-editable score weights · 7.7.c proactive rejection WhatsApp
 
 ### 4 verified-Pass no-action
 
 5.3 · 8.6 · 8.7 · 8.8
 
-**Ali — `QA_FIX_LOG.md` has per-test detail: QA finding → root cause → options considered → decision → effort. `docs/SPRINT_PLAN.md` has the execution order. Push back on any disposition you disagree with.**
+**Authoritative docs**: per-test detail in `docs/QA_FIX_LOG.md` · execution order + Ali's additions in `docs/SPRINT_PLAN.md` · retest tracking in `docs/HireIQ_QA_Test_Plan_v1.3.docx` (created as first commit of this release series).
 
 ## Tomorrow's Open Items (carry-over)
 
