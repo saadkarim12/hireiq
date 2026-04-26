@@ -124,10 +124,17 @@ export default function TalentPoolPage() {
       })
       const data = res.data as any
       if (data.success) {
-        toast.success(`${candidate.fullName} added to pipeline — review in Applied column, then invite to WhatsApp`)
+        const invited: number = data.data?.invited ?? 0
+        const skipped: Array<{ fullName: string | null }> = data.data?.skipped ?? []
+        if (invited > 0 && skipped.length === 0) {
+          toast.success(`${candidate.fullName} added to pipeline — review in Applied column, then invite to WhatsApp`)
+        } else if (invited > 0 && skipped.length > 0) {
+          toast.success(`Added ${invited} · ${skipped.length} already in pipeline`)
+        } else {
+          toast(`${candidate.fullName} is already in this job's pipeline`, { icon: 'ℹ️' })
+        }
         setSelectedCandidate(null)
         qc.invalidateQueries({ queryKey: ['dashboard'] })
-        // Refresh the matched candidates list to remove the just-invited one
         if (selectedJobId) {
           const refresh = await api.get<any[]>(`/jobs/${selectedJobId}/talent-matches?minScore=0`)
           setMatchedCandidates((refresh.data?.data as any)?.matches || [])

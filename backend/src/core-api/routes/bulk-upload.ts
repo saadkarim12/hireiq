@@ -251,12 +251,33 @@ bulkUploadRouter.post('/jobs/:jobId/invite-from-pool', async (req: AuthRequest, 
     if (!job) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Job not found' } })
 
     let invited = 0
+    const skipped: Array<{ candidateId: string; existingId: string; fullName: string | null }> = []
     for (const candidateId of candidateIds) {
       const c = await prisma.candidate.findFirst({ where: { id: candidateId, agencyId: req.user!.agencyId } })
       if (!c) continue
+
+      // Identity guard: a pool candidate cannot be added to the same job twice.
+      // Match on email (canonical identity) OR on the wa_number_hash prefix
+      // (legacy rows already carry a timestamp suffix from the pre-fix code path).
+      const baseHash = c.waNumberHash.split('_')[0]
+      const existing = await prisma.candidate.findFirst({
+        where: {
+          jobId,
+          OR: [
+            ...(c.email ? [{ email: c.email }] : []),
+            { waNumberHash: { startsWith: baseHash } },
+          ],
+        },
+        select: { id: true },
+      })
+      if (existing) {
+        skipped.push({ candidateId, existingId: existing.id, fullName: c.fullName })
+        continue
+      }
+
       const newCandidate = await prisma.candidate.create({ data: {
         agencyId: req.user!.agencyId, jobId,
-        waNumberHash: (c.waNumberHash.slice(0, 50) + '_' + Date.now().toString().slice(-8)).slice(0, 64),
+        waNumberHash: c.waNumberHash.slice(0, 64),
         waNumberEncrypted: c.waNumberEncrypted,
         fullName: c.fullName, email: c.email,
         currentRole: c.currentRole, yearsExperience: c.yearsExperience,
@@ -264,13 +285,10 @@ bulkUploadRouter.post('/jobs/:jobId/invite-from-pool', async (req: AuthRequest, 
         cvType: c.cvType || 'full_cv',
         consentGiven: true, consentTimestamp: new Date(),
         sourceChannel: 'talent_pool_match',
-        // Phase 6k: Pool "Add to Pipeline" lands in Applied with CV-only scoring.
-        // WhatsApp screening fires later when recruiter clicks "Invite to WhatsApp" in Applied drawer.
         pipelineStage: 'applied', conversationState: 'initiated',
         dataTags: JSON.parse(JSON.stringify({ ...(c.dataTags as any || {}), invitedFromPool: true, originalCandidateId: c.id, jobTitle: job.title }).slice(0, 30000)),
       }})
 
-      // Fire CV-only scoring so the Applied drawer has a recommendation ready
       try {
         await fetch(`http://localhost:${process.env.AI_ENGINE_PORT || 3002}/api/v1/ai/score-cv`, {
           method: 'POST',
@@ -283,7 +301,7 @@ bulkUploadRouter.post('/jobs/:jobId/invite-from-pool', async (req: AuthRequest, 
 
       invited++
     }
-    res.json({ success: true, data: { invited, jobTitle: job.title } })
+    res.json({ success: true, data: { invited, skipped, jobTitle: job.title } })
   } catch {
     res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Failed' } })
   }
