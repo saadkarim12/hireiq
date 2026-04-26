@@ -93,16 +93,20 @@ export function CandidatePanel({
     initialData: initialData as CandidateFull | undefined,
   })
 
-  // v1.11.3 — Live CV re-score for the currently-selected TP job. Cached by
-  // [candidateId, jobId] so re-opens within the session don't re-bill Claude.
-  // Only fires in TP context with a job selected.
-  const { data: previewScore, isLoading: previewLoading, isError: previewError } = useQuery({
-    queryKey: ['preview-score', candidateId, jobId],
+  // v1.11.3 / v1.11.4 — Recruiter-initiated CV re-score for the selected
+  // TP job. Cached by [candidateId, jobId] so once requested, subsequent
+  // drawer-opens of the same pair show the result without a new Claude call.
+  // Per Saad: don't auto-fire on drawer open — give the recruiter the choice.
+  const previewKey = ['preview-score', candidateId, jobId] as const
+  const cachedPreview = queryClient.getQueryData<any>(previewKey as any)
+  const [previewRequested, setPreviewRequested] = useState<boolean>(!!cachedPreview)
+  const { data: previewScore, isLoading: previewLoading, isError: previewError, refetch: refetchPreview } = useQuery({
+    queryKey: previewKey as any,
     queryFn: async () => {
       const res = await api.post<any>(`/jobs/${jobId}/preview-score`, { candidateId })
       return res.data?.data || null
     },
-    enabled: context === 'talent_pool' && !!jobId,
+    enabled: context === 'talent_pool' && !!jobId && previewRequested,
     staleTime: Infinity,
     refetchOnWindowFocus: false,
   })
@@ -255,15 +259,35 @@ export function CandidatePanel({
         {candidate && (
           <div className="px-6 py-4 bg-gray-50 border-b border-gray-200 flex-shrink-0">
             {context === 'talent_pool' && jobId ? (
-              // v1.11.3 — Live re-score against the currently-selected TP job.
-              // Replaces the candidate's stale stored composite (which is from
-              // their canonical row, often a different job) with a fresh
-              // CV-against-this-job score from /jobs/:jobId/preview-score.
+              // v1.11.3 / v1.11.4 — Recruiter-initiated re-score against the
+              // selected TP job. Until the recruiter clicks "Re-parse & re-score",
+              // we show a CTA + the candidate's previous stored score as
+              // reference. Once requested, result is cached per (candidate, job).
               <div className="rounded-xl border-2 p-4" style={{ borderColor: '#C9A84C66', background: '#FDF6E3' }}>
                 <p className="text-[10px] font-bold uppercase tracking-wide text-center mb-2" style={{ color: '#92400E' }}>
                   Match for: {jobTitle || 'selected job'}
                 </p>
-                {previewLoading ? (
+                {!previewRequested ? (
+                  <div className="flex flex-col items-center gap-3 py-3">
+                    <div className="text-center">
+                      <p className="text-xs text-gray-600">
+                        Previous score: <b className="text-gray-900">{s('cvMatchScore') ?? '—'}</b>
+                        {(candidate as any).job?.title && (
+                          <span className="text-gray-400"> (from {(candidate as any).job.title}{candidate.createdAt ? ' · ' + new Date(candidate.createdAt).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' }) : ''})</span>
+                        )}
+                      </p>
+                      <p className="text-[10px] text-gray-500 mt-1">Run a fresh AI analysis to score this CV against {jobTitle || 'this job'}'s requirements.</p>
+                    </div>
+                    <button
+                      onClick={() => { setPreviewRequested(true); refetchPreview() }}
+                      className="px-4 py-2 text-xs font-semibold text-white rounded-lg flex items-center gap-2"
+                      style={{ background: '#0A3D2E' }}
+                    >
+                      🔍 Re-parse &amp; re-score CV against {jobTitle || 'this job'}
+                    </button>
+                    <p className="text-[10px] text-gray-400">Uses Claude · ~10s · cached for this session</p>
+                  </div>
+                ) : previewLoading ? (
                   <div className="flex flex-col items-center gap-2 py-4">
                     <span className="inline-block animate-spin text-xl">🔄</span>
                     <p className="text-xs text-gray-600">Re-scoring CV against {jobTitle || 'this job'}…</p>
@@ -273,6 +297,12 @@ export function CandidatePanel({
                   <div className="text-center py-3">
                     <p className="text-xs text-red-700">Live re-score failed</p>
                     <p className="text-[10px] text-gray-500 mt-1">Showing stored score: <b>{s('cvMatchScore') ?? '—'}</b></p>
+                    <button
+                      onClick={() => refetchPreview()}
+                      className="mt-2 text-[10px] underline text-gray-600"
+                    >
+                      Try again
+                    </button>
                   </div>
                 ) : (
                   <>
