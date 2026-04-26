@@ -36,7 +36,7 @@ Saad orchestrates five specialised AI advisors, each in a separate Claude chat. 
 - Second demo: **DigyCorp** (direct employer variant)
 - Target: UAE + KSA large recruitment agencies
 - Repo: github.com/saadkarim12/hireiq
-- Current tag: v1.11.0
+- Current tag: v1.11.2
 
 ## Tech Stack
 - **Frontend**: Next.js 14 (App Router), TypeScript, Tailwind, TanStack Query, shadcn/ui
@@ -99,8 +99,8 @@ cd ~/hireiq/frontend && npm run dev
 
 ### Working Features
 1. **Job Creation** — 4-step wizard (Role Basics → JD Builder → Screening Criteria → Baseline Questions)
-2. **CV Inbox** — Upload → AI parse → Score → Review drawer → Accept / Invite WhatsApp / Reject
-3. **Talent Pool** — Re-score all candidates against selected job, click for drawer, Invite to WhatsApp
+2. **CV Inbox** — Upload → AI parse → Score → Review drawer → Accept / Invite WhatsApp / Reject. First stage history entry tagged `entryPath: 'cv_inbox'` (v1.11.2).
+3. **Talent Pool** — Deduped by identity (Sprint 5). Click candidate → drawer with score block + clickable Application History (v1.11.2) showing score breakdown / AI rec / rejection reason per past job. With job selected: primary `✅ Approve to L1` (skips Applied, fires WhatsApp screening directly) + secondary `📥 Add to Pipeline (review first)` (v1.11.2). Dupe guard at insert (v1.11.1) prevents same identity being added twice to same job.
 4. **Job Pipeline** — Funnel summary at top + Kanban below with columns:
    - Applied (maps: applied, evaluated, screening)
    - L1 — CV Screened (maps: shortlisted)
@@ -141,8 +141,9 @@ Two-stage scoring aligned to kanban stages:
 ### Stage Transitions — Where Actions Fire
 One primary button per drawer, label follows the next stage: **"✅ Approve to L1" / L2 / L3 / Final**.
 
-- **Pool "📥 Add to Pipeline"** → creates candidate at `applied`, triggers `/score-cv` async.
-- **Applied drawer "✅ Approve to L1"** → confirmation modal (paid-Claude warning) → PATCH `/candidates/:id/status` → `shortlisted`. When PATCH sees `shortlisted` as new stage AND previous wasn't, it fire-and-forgets `simulate-screening`. Frontend polls at 3s while `conversationState` is `screening_q*`, showing `🔄 Screening…` badge. Full composite + L2 recommendation land on completion (~15-30s).
+- **TP drawer (job selected) "✅ Approve to L1"** (v1.11.2) → confirmation modal (paid-Claude warning) → POST `/jobs/:jobId/invite-from-pool` with `approveToL1:true` → row created at `shortlisted` directly with `conversationState=screening_q1` written synchronously, then WhatsApp screening sim fires async. Skips Applied. `pipelineStageHistory[0].entryPath='tp_direct'`.
+- **TP drawer (job selected) "📥 Add to Pipeline (review first)"** → row created at `applied`, `/score-cv` fires async, recruiter still has Applied review step. Same dupe guard as above.
+- **Applied drawer "✅ Approve to L1"** → confirmation modal (paid-Claude warning) → PATCH `/candidates/:id/status` → `shortlisted`. When PATCH sees `shortlisted` as new stage AND previous wasn't, fire-and-forgets `simulate-screening`. Frontend polls at 3s while `conversationState` is `screening_q*`. Full composite + L2 recommendation land on completion (~15-30s).
 - **L1 drawer "✅ Approve to L2"** · **L2 "Approve to L3"** · **L3 "Approve to Final"** → single click advances. No modal (no Claude spend).
 - **Final Shortlist → Hired** → "Approve to Final" on `offered` drawer maps to `hired`. No further actions after that.
 - Hold / Reject are secondary buttons, same on every stage.
@@ -155,7 +156,7 @@ One primary button per drawer, label follows the next stage: **"✅ Approve to L
 - **Personalised WhatsApp** — Different message tone for new vs pool candidates
 - **Pipeline level naming** — Applied/L1/L2/L3/Final (not generic HR labels)
 - **Funnel + Kanban** — Funnel for big picture, kanban for action
-- **Stage-change audit** — Every pipelineStage transition is appended to `pipelineStageHistory` JSON array `{from, to, timestamp, userId}`. Backward moves are logged (not blocked) so we can answer "why was this candidate un-promoted?"
+- **Stage-change audit** — Every pipelineStage transition is appended to `pipelineStageHistory` JSON array `{from, to, timestamp, userId, entryPath?}`. The first entry carries `entryPath: 'tp_direct'` (TP → L1 / TP → Applied) or `entryPath: 'cv_inbox'` (bulk-upload accept) so analytics can distinguish flow paths. Backward moves are logged (not blocked) so we can answer "why was this candidate un-promoted?"
 
 ### Seeded Test Data
 6 synthetic candidates in pool:
@@ -194,6 +195,19 @@ Plus 10 Cloud Architect pipeline candidates (Omar Farouk, Ahmed Al-Rashidi, Sara
 
 **Blocked** (Saad unblock): 1.1.a favicon — awaiting HireIQ logo asset. Defaults to generic globe.
 **Deferred to Phase 7**: 3.10.b PDF persistence · 4.4.c Claude per-job re-score · 7.6.a.ii CV-match backfill · 7.6.c editable weights · 7.7.c proactive rejection WA.
+
+### 2026-04-26 — v1.11.1 + v1.11.2 (post-release patch + product expansion)
+
+**v1.11.1** (`5566c9f`) — Patch: `Add to Pipeline` dupe guard. Sprint 5 deduped the Talent Pool *list* but the *insert path* (`/jobs/:jobId/invite-from-pool`) still created a fresh row on every click. Cloud Architect — DigyCorp had accumulated 18× Zainab Khan, 8× Fatima Al-Zaabi, 5× Nadia Hussain, 2× James Thornton (43 rows / 14 distinct people). Backend now checks identity by email or `wa_number_hash` prefix before insert, returns `{ invited, skipped[] }`. Frontend toasts skipped vs invited counts. One-shot SQL cleanup: 43 rows → 14 unique. Caught during Saad's Module 7 E2E walkthrough.
+
+**v1.11.2** (`4cd20af`) — Product: TP-direct → L1 flow. Triggered by Saad's Module 7 walkthrough exposing the redundant TP → Applied → L1 ceremony. Approved by Ali with TP-direct tracking requirements.
+
+- TP drawer (job selected) gains primary `✅ Approve to L1` button. Skips Applied entirely: lands at `shortlisted` with `conversationState=screening_q1` synchronous, WhatsApp sim fires async, paid-Claude modal preserved. The cautious `📥 Add to Pipeline (review first)` remains as a secondary button.
+- TP drawer (no job selected): score block now captioned "From last application: <Job> · <stage> · <date>" — no more anchorless numbers.
+- Application History rows: clickable, expand to show score breakdown + AI recommendation + reason + rejection details. `/candidates/:id/history` extended with 7 fields.
+- New endpoint `POST /jobs/:jobId/preview-score` (proxies to ai-engine `/preview-score-cv`) for dry-run CV-against-job scoring without DB write.
+- `pipelineStageHistory` first entry carries `entryPath` tag: `'tp_direct'` (Talent Pool flow) or `'cv_inbox'` (bulk upload). Enables future analytics distinction.
+- Analytics: new KPI in Pipeline Funnel card — `TP → L1 direct: X / Y L1 entries (Z% skipped Applied)`. Backend `kpis.tpDirectL1{Count, Percent, Total}`.
 
 ## QA v1.2 Review — COMPLETE (2026-04-24, for Ali)
 
