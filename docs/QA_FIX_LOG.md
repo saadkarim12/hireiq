@@ -526,3 +526,98 @@ Awaiting logo from Saad: 1.1.a
 ### Verified Pass, no action — 3 items
 
 5.3 TP Job History renders · 8.6 stage history JSON · 8.7 hold reason · 8.8 reject reason
+
+---
+
+# Post-v1.11.0 — Module 7 E2E walkthrough findings (2026-04-26)
+
+After v1.11.0 shipped, Saad walked Module 7 end-to-end. Two issues surfaced
+in flow-context that didn't appear as discrete test rows.
+
+## v1.11.1 — `5566c9f` — Duplicate Add-to-Pipeline rows
+
+**Finding**: Cloud Architect — DigyCorp pipeline showed 18× Zainab Khan, 8×
+Fatima Al-Zaabi, 5× Nadia Hussain, 2× James Thornton (43 rows for 14 distinct
+people).
+
+**Root cause**: Sprint 5 (7.6.a.iii) deduped the Talent Pool *list* but the
+*insert path* `/jobs/:jobId/invite-from-pool` at `bulk-upload.ts:259` mutated
+`wa_number_hash` with a timestamp suffix, sidestepping any uniqueness, with no
+app-level identity check. Every recruiter click during QA created a new row.
+
+**Fix**:
+- Backend identity guard: query for any row in target jobId where
+  `email = c.email` OR `waNumberHash` startsWith `baseHash` (handles legacy
+  suffixed rows). If found, skip insert and push to `skipped[]` array.
+- Drop the timestamp-suffix mutation. Use source `waNumberHash` as-is.
+- Response shape additive: `{ invited, skipped: [{candidateId, existingId,
+  fullName}], jobTitle }`.
+- Frontend toast variants: "Added N", "Added N · M already in pipeline",
+  "X is already in this job's pipeline".
+- One-shot SQL cleanup for Cloud Architect: 43 → 14 rows. Per identity, kept
+  highest pipeline_stage row (priority hired > offered > … > rejected),
+  tiebreaker compositeScore desc, tiebreaker created_at desc.
+
+**Verification**: Re-add same candidate twice → first call returns
+`{invited:1, skipped:[]}`, second returns `{invited:0, skipped:[…]}`. DB count
+unchanged after second click.
+
+## v1.11.2 — `4cd20af` — TP-direct → L1 + history detail + analytics KPI
+
+**Finding (UX)**: After v1.11.1, walking the flow surfaced two more gaps:
+
+1. Top score block on TP drawer was anchorless when no "Match for" job was
+   selected. Showed a candidate's stored composite (her last application's
+   score) without telling the user "from which job."
+2. Application History rows were display-only. Saad expected to click and see
+   per-job score breakdown + AI rec + rejection reason.
+
+**Finding (workflow)**: TP → Applied → L1 requires two clicks + two screen
+contexts. When the recruiter has already vetted the candidate against the
+selected job in TP, the Applied review step is ceremony. Ali approved
+collapsing this to one click while preserving the cautious 2-step path as a
+secondary option.
+
+**Fix (product change)**:
+- TP drawer (with job selected): primary `✅ Approve to L1` button (paid-Claude
+  modal preserved) + secondary `📥 Add to Pipeline (review first)`. Approve to
+  L1 → `POST /jobs/:jobId/invite-from-pool` with `approveToL1:true` → row
+  created at `shortlisted` directly with `conversationState=screening_q1`
+  synchronous, then WhatsApp sim fires async.
+- TP drawer (no job selected): score block now captioned "From last
+  application: <Job> · <stage> · <date>".
+- ApplicationHistoryBlock: clickable rows expanding to show
+  cvMatch/commitment/salary/composite scores, AI rec + reason, and rejection
+  details.
+- Backend `/candidates/:id/history` extended with 7 fields.
+- Backend `/candidates/:id` includes `job: { title, hiringCompany }`.
+- New endpoint `POST /jobs/:jobId/preview-score` (proxies ai-engine
+  `/preview-score-cv`) for dry-run CV-against-job scoring without DB write —
+  supports future TP "show match before commit" UX.
+
+**Fix (analytics, per Ali)**:
+- `pipelineStageHistory[0]` carries `entryPath` tag: `'tp_direct'` (TP →
+  applied or TP → shortlisted) or `'cv_inbox'` (bulk upload accept). Schema
+  unchanged — JSON field absorbs the extra key.
+- `/analytics` adds `kpis.tpDirectL1{Count, Percent, Total}`. Counts L1+
+  candidates whose first stage-history entry is `to=shortlisted` with
+  `entryPath='tp_direct'`.
+- Analytics Pipeline Funnel card displays "TP → L1 direct: X / Y L1 entries
+  (Z% skipped Applied review)".
+
+**Verification**: Aisha Qasim approved-to-L1 from TP. DB row landed at
+`shortlisted` with `conversationState=screening_q1` and
+`pipelineStageHistory[0].entryPath='tp_direct'`. Analytics returned
+`tpDirectL1Count: 1, Total: 14, Percent: 7%`. All 5 dashboard pages 200.
+
+## Carried over to v1.11.3+ / Phase 7
+
+- Wire `/preview-score` into the TP drawer UI. Today the Approve-to-L1 modal
+  asks the recruiter to commit *before* a Claude re-score against the
+  selected job runs. The endpoint exists but isn't yet auto-fired on
+  candidate-select. Cost concern: one Claude call per drawer-open could be
+  expensive at scale; needs a debounce or on-demand "Re-score" button before
+  going live with a real client.
+- Phase 7 4.4.c (Claude per-job re-score in TP) is now partially built — the
+  dry-run scorer shipped in v1.11.2; only the frontend wiring + cost-control
+  UX remain.

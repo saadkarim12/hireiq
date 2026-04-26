@@ -60,9 +60,12 @@ Saad orchestrates five specialised AI advisors, each in a separate Claude chat. 
 │       ├── whatsapp-service/  # WhatsApp mock + handlers (port 3003)
 │       └── scheduler/    # Cron jobs (port 3004)
 └── docs/
-    ├── HireIQ_BRD_v5.3.docx          # Current BRD
-    ├── HireIQ_User_Flow_v1.1.docx    # User flow walkthrough
-    └── HireIQ_Flow_Diagram.svg       # Visual flow diagram
+    ├── HireIQ_BRD_v5.5.docx          # Current BRD (v1.11.2 additions)
+    ├── HireIQ_User_Flow_v1.3.docx    # User flow (TP-direct → L1 added)
+    ├── HireIQ_QA_Test_Plan_v1.3.docx # QA retest ledger (85 tests, all closed)
+    ├── QA_FIX_LOG.md                 # Per-test decision log + post-v1.11.0 patches
+    ├── SPRINT_PLAN.md                # Original 5-sprint execution order
+    └── HireIQ_Flow_Diagram.svg       # Visual flow diagram (pre-v1.11.2)
 ```
 
 ## Starting Services
