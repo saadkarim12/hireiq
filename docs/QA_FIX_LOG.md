@@ -610,14 +610,61 @@ secondary option.
 `pipelineStageHistory[0].entryPath='tp_direct'`. Analytics returned
 `tpDirectL1Count: 1, Total: 14, Percent: 7%`. All 5 dashboard pages 200.
 
-## Carried over to v1.11.3+ / Phase 7
+## v1.11.3 — `c51d6da` — Live CV re-score in TP drawer + flow simplification
 
-- Wire `/preview-score` into the TP drawer UI. Today the Approve-to-L1 modal
-  asks the recruiter to commit *before* a Claude re-score against the
-  selected job runs. The endpoint exists but isn't yet auto-fired on
-  candidate-select. Cost concern: one Claude call per drawer-open could be
-  expensive at scale; needs a debounce or on-demand "Re-score" button before
-  going live with a real client.
-- Phase 7 4.4.c (Claude per-job re-score in TP) is now partially built — the
-  dry-run scorer shipped in v1.11.2; only the frontend wiring + cost-control
-  UX remain.
+**Finding (UX)**: Saad's screenshot of Nadia Hussain's drawer (TP, "Match for"
+= active Cloud Architect — DigyCorp) surfaced three issues:
+
+1. **Stale top score**. Drawer showed 83 (her composite). But she has TWO
+   Cloud Architect — DigyCorp rows in DB:
+   - `2723ad53` (CLOSED job): shortlisted, composite=83, 2026-04-19
+   - `b5bde6ce` (ACTIVE job — the selected Match for): shortlisted, composite=66, 2026-04-17
+
+   The TP dedupe picks the most-recent row as canonical → drawer rendered
+   the 83 row. The 66 (her actual stored score for THIS active job) appeared
+   only in Application History below. Saad couldn't reconcile and read
+   "previous score was 66, why does it say 83?"
+
+2. **CV parsing for the new job not shown**. v1.11.2 shipped `/preview-score`
+   backend-only; never wired to the drawer. Saad's explicit override of the
+   prior cost concern: "Please ship CV parsing in this phase".
+
+3. **"Add to Pipeline (review first)" muddied the single-action flow**.
+   He had earlier approved keeping it as a Hold-for-review path; on seeing
+   the live UI he decided the secondary button was clutter.
+
+**Fix**:
+
+Frontend (`CandidatePanel.tsx`)
+- New `useQuery` for preview-score, keyed by `[candidateId, jobId]` with
+  `staleTime: Infinity` and `refetchOnWindowFocus: false`. Session-cache
+  prevents re-billing Claude on drawer re-opens.
+- New top branch in score block: when `context==='talent_pool' && jobId`,
+  render a gold "Match for: <Job>" card driven by LIVE preview-score data
+  (cvMatchScore, mustHaveSkills evidence chips, hardFilterPass +
+  hardFilterFailReason, AI recommendation + reason). Loading spinner
+  while Claude runs (~10s). Error fallback renders stored score with a
+  "live re-score failed" caption.
+- Removed secondary "Add to Pipeline (review first)" button. Single
+  CTA: `Approve to L1`.
+
+Backend (`candidates.ts`)
+- `/candidates/:id/history`: dropped `id: { not: target.id }` exclusion.
+  Canonical row now appears in history alongside other past applications.
+  Reason: top of drawer now shows a LIVE preview-score (different from the
+  canonical's stored fields), so the canonical's stored scores belong in
+  the history list.
+
+**Verification**:
+- `/preview-score` for Nadia vs ACTIVE Cloud Architect: cvMatch=42 (vs.
+  her stale stored 83), hardFilterPass=true, aiRec='reject — CV match weak
+  (42)'. 8 must-have skills with ✓/✗ evidence.
+- `/history` returns 3 rows for Nadia (was 2 — canonical 83 row included).
+- All 5 dashboard pages 200.
+
+**Open / Phase 7 carryover**:
+- Manual "Re-score" refresh button — deferred. Session cache is the cost
+  control; if recruiter wants forced refresh, close + reopen the drawer.
+- The active Cloud Architect job's must-have list is bloated (8 entries
+  per CLAUDE.md "JD must-haves generator is too aggressive" Known Issue).
+  Phase 8 adaptive threshold or process-jd.ts prompt tuning will fix.

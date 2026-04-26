@@ -36,7 +36,7 @@ Saad orchestrates five specialised AI advisors, each in a separate Claude chat. 
 - Second demo: **DigyCorp** (direct employer variant)
 - Target: UAE + KSA large recruitment agencies
 - Repo: github.com/saadkarim12/hireiq
-- Current tag: v1.11.2
+- Current tag: v1.11.3
 
 ## Tech Stack
 - **Frontend**: Next.js 14 (App Router), TypeScript, Tailwind, TanStack Query, shadcn/ui
@@ -60,10 +60,10 @@ Saad orchestrates five specialised AI advisors, each in a separate Claude chat. 
 │       ├── whatsapp-service/  # WhatsApp mock + handlers (port 3003)
 │       └── scheduler/    # Cron jobs (port 3004)
 └── docs/
-    ├── HireIQ_BRD_v5.5.docx          # Current BRD (v1.11.2 additions)
-    ├── HireIQ_User_Flow_v1.3.docx    # User flow (TP-direct → L1 added)
+    ├── HireIQ_BRD_v5.6.docx          # Current BRD (v1.11.3 additions)
+    ├── HireIQ_User_Flow_v1.4.docx    # User flow (live re-score, single CTA)
     ├── HireIQ_QA_Test_Plan_v1.3.docx # QA retest ledger (85 tests, all closed)
-    ├── QA_FIX_LOG.md                 # Per-test decision log + post-v1.11.0 patches
+    ├── QA_FIX_LOG.md                 # Per-test decision log + post-v1.11.0 patches (v1.11.1/2/3)
     ├── SPRINT_PLAN.md                # Original 5-sprint execution order
     └── HireIQ_Flow_Diagram.svg       # Visual flow diagram (pre-v1.11.2)
 ```
@@ -103,7 +103,7 @@ cd ~/hireiq/frontend && npm run dev
 ### Working Features
 1. **Job Creation** — 4-step wizard (Role Basics → JD Builder → Screening Criteria → Baseline Questions)
 2. **CV Inbox** — Upload → AI parse → Score → Review drawer → Accept / Invite WhatsApp / Reject. First stage history entry tagged `entryPath: 'cv_inbox'` (v1.11.2).
-3. **Talent Pool** — Deduped by identity (Sprint 5). Click candidate → drawer with score block + clickable Application History (v1.11.2) showing score breakdown / AI rec / rejection reason per past job. With job selected: primary `✅ Approve to L1` (skips Applied, fires WhatsApp screening directly) + secondary `📥 Add to Pipeline (review first)` (v1.11.2). Dupe guard at insert (v1.11.1) prevents same identity being added twice to same job.
+3. **Talent Pool** — Deduped by identity (Sprint 5). Click candidate → drawer with score block + clickable Application History (v1.11.2) showing score breakdown / AI rec / rejection reason per past job. With job selected: drawer fires LIVE Claude `/preview-score` against THIS job (v1.11.3) — gold "Match for: <Job>" card with fresh cvMatchScore + mustHaveSkills evidence + hardFilterPass + AI rec. Single CTA: `✅ Approve to L1` (skips Applied, fires WhatsApp screening directly). Dupe guard at insert (v1.11.1) prevents same identity being added twice to same job. React Query session-caches preview-score by (candidateId, jobId) to avoid re-billing Claude on drawer re-opens.
 4. **Job Pipeline** — Funnel summary at top + Kanban below with columns:
    - Applied (maps: applied, evaluated, screening)
    - L1 — CV Screened (maps: shortlisted)
@@ -144,8 +144,7 @@ Two-stage scoring aligned to kanban stages:
 ### Stage Transitions — Where Actions Fire
 One primary button per drawer, label follows the next stage: **"✅ Approve to L1" / L2 / L3 / Final**.
 
-- **TP drawer (job selected) "✅ Approve to L1"** (v1.11.2) → confirmation modal (paid-Claude warning) → POST `/jobs/:jobId/invite-from-pool` with `approveToL1:true` → row created at `shortlisted` directly with `conversationState=screening_q1` written synchronously, then WhatsApp screening sim fires async. Skips Applied. `pipelineStageHistory[0].entryPath='tp_direct'`.
-- **TP drawer (job selected) "📥 Add to Pipeline (review first)"** → row created at `applied`, `/score-cv` fires async, recruiter still has Applied review step. Same dupe guard as above.
+- **TP drawer (job selected) "✅ Approve to L1"** (v1.11.2, single CTA per v1.11.3) → on drawer open, fires `/jobs/:jobId/preview-score` (live Claude CV-against-JD scoring, no DB write) and shows the result in a gold "Match for" card. Click button → confirmation modal (paid-Claude warning) → POST `/jobs/:jobId/invite-from-pool` with `approveToL1:true` → row created at `shortlisted` directly with `conversationState=screening_q1` written synchronously, then WhatsApp screening sim fires async. Skips Applied. `pipelineStageHistory[0].entryPath='tp_direct'`. The "Add to Pipeline (review first)" button was removed in v1.11.3 — only the single approve path remains.
 - **Applied drawer "✅ Approve to L1"** → confirmation modal (paid-Claude warning) → PATCH `/candidates/:id/status` → `shortlisted`. When PATCH sees `shortlisted` as new stage AND previous wasn't, fire-and-forgets `simulate-screening`. Frontend polls at 3s while `conversationState` is `screening_q*`. Full composite + L2 recommendation land on completion (~15-30s).
 - **L1 drawer "✅ Approve to L2"** · **L2 "Approve to L3"** · **L3 "Approve to Final"** → single click advances. No modal (no Claude spend).
 - **Final Shortlist → Hired** → "Approve to Final" on `offered` drawer maps to `hired`. No further actions after that.
@@ -211,6 +210,12 @@ Plus 10 Cloud Architect pipeline candidates (Omar Farouk, Ahmed Al-Rashidi, Sara
 - New endpoint `POST /jobs/:jobId/preview-score` (proxies to ai-engine `/preview-score-cv`) for dry-run CV-against-job scoring without DB write.
 - `pipelineStageHistory` first entry carries `entryPath` tag: `'tp_direct'` (Talent Pool flow) or `'cv_inbox'` (bulk upload). Enables future analytics distinction.
 - Analytics: new KPI in Pipeline Funnel card — `TP → L1 direct: X / Y L1 entries (Z% skipped Applied)`. Backend `kpis.tpDirectL1{Count, Percent, Total}`.
+
+**v1.11.3** (`c51d6da`) — Live CV re-score in TP drawer + flow simplification. Saad's screenshot of Nadia Hussain's drawer surfaced three concrete issues: stale top score (her 83 was from a CLOSED Cloud Architect job; selected "Match for" pointed at the active version of the same title where her score is 66), missing live CV parse against the selected job (we shipped the backend in v1.11.2 but didn't wire it to UI), and the secondary "Add to Pipeline (review first)" button cluttering the single-action flow.
+
+- TP drawer (job selected) now fires `/jobs/:jobId/preview-score` on open. The result populates the gold "Match for: <Job>" card with LIVE cvMatchScore, mustHaveSkills evidence chips, hardFilterPass + reason, and AI recommendation. Cached per `(candidateId, jobId)` by React Query (`staleTime: Infinity`) so re-opens within session don't re-bill Claude. Loading spinner during the ~10s Claude call. Error fallback shows the stored score with a "live re-score failed" caption.
+- Removed secondary "Add to Pipeline (review first)" button. Single CTA: `Approve to L1`.
+- `/candidates/:id/history` now includes the canonical row (dropped `id: { not: target.id }` exclusion). Reason: top of drawer no longer shows the canonical's stored fields, so they belong in history alongside other past attempts. Nadia's drawer now correctly lists BOTH her Cloud Architect attempts (83/19-Apr closed-job and 66/17-Apr active-job) in history.
 
 ## QA v1.2 Review — COMPLETE (2026-04-24, for Ali)
 
