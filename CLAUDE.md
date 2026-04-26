@@ -36,7 +36,7 @@ Saad orchestrates five specialised AI advisors, each in a separate Claude chat. 
 - Second demo: **DigyCorp** (direct employer variant)
 - Target: UAE + KSA large recruitment agencies
 - Repo: github.com/saadkarim12/hireiq
-- Current tag: v1.11.3
+- Current tag: v1.11.4
 
 ## Tech Stack
 - **Frontend**: Next.js 14 (App Router), TypeScript, Tailwind, TanStack Query, shadcn/ui
@@ -144,7 +144,7 @@ Two-stage scoring aligned to kanban stages:
 ### Stage Transitions — Where Actions Fire
 One primary button per drawer, label follows the next stage: **"✅ Approve to L1" / L2 / L3 / Final**.
 
-- **TP drawer (job selected) "✅ Approve to L1"** (v1.11.2, single CTA per v1.11.3) → on drawer open, fires `/jobs/:jobId/preview-score` (live Claude CV-against-JD scoring, no DB write) and shows the result in a gold "Match for" card. Click button → confirmation modal (paid-Claude warning) → POST `/jobs/:jobId/invite-from-pool` with `approveToL1:true` → row created at `shortlisted` directly with `conversationState=screening_q1` written synchronously, then WhatsApp screening sim fires async. Skips Applied. `pipelineStageHistory[0].entryPath='tp_direct'`. The "Add to Pipeline (review first)" button was removed in v1.11.3 — only the single approve path remains.
+- **TP drawer (job selected) "✅ Approve to L1"** (v1.11.2, single CTA per v1.11.3, recruiter-initiated re-score per v1.11.4) → drawer opens with the gold "Match for" card showing previous stored score + a "🔍 Re-parse & re-score CV against <Job>" button. Recruiter clicks the button to fire `/jobs/:jobId/preview-score` (live Claude CV-against-JD scoring, no DB write, ~10s, cached per session). Click "Approve to L1" → confirmation modal (paid-Claude warning) → POST `/jobs/:jobId/invite-from-pool` with `approveToL1:true` → row created at `shortlisted` directly with `conversationState=screening_q1` written synchronously, then WhatsApp screening sim fires async. Skips Applied. `pipelineStageHistory[0].entryPath='tp_direct'`. The "Add to Pipeline (review first)" button was removed in v1.11.3 — only the single approve path remains.
 - **Applied drawer "✅ Approve to L1"** → confirmation modal (paid-Claude warning) → PATCH `/candidates/:id/status` → `shortlisted`. When PATCH sees `shortlisted` as new stage AND previous wasn't, fire-and-forgets `simulate-screening`. Frontend polls at 3s while `conversationState` is `screening_q*`. Full composite + L2 recommendation land on completion (~15-30s).
 - **L1 drawer "✅ Approve to L2"** · **L2 "Approve to L3"** · **L3 "Approve to Final"** → single click advances. No modal (no Claude spend).
 - **Final Shortlist → Hired** → "Approve to Final" on `offered` drawer maps to `hired`. No further actions after that.
@@ -210,6 +210,8 @@ Plus 10 Cloud Architect pipeline candidates (Omar Farouk, Ahmed Al-Rashidi, Sara
 - New endpoint `POST /jobs/:jobId/preview-score` (proxies to ai-engine `/preview-score-cv`) for dry-run CV-against-job scoring without DB write.
 - `pipelineStageHistory` first entry carries `entryPath` tag: `'tp_direct'` (Talent Pool flow) or `'cv_inbox'` (bulk upload). Enables future analytics distinction.
 - Analytics: new KPI in Pipeline Funnel card — `TP → L1 direct: X / Y L1 entries (Z% skipped Applied)`. Backend `kpis.tpDirectL1{Count, Percent, Total}`.
+
+**v1.11.4** (`0df3deb`) — Recruiter-initiated re-score in TP drawer. Saad's UX call after seeing v1.11.3: auto-firing Claude on every drawer open is wrong; recruiter should opt in. Gold "Match for" card now opens with a CTA button "🔍 Re-parse & re-score CV against <Job>" + previous score reference. Click fires Claude (~10s); result is cached per (candidateId, jobId) in React Query session cache so subsequent opens show the result directly with no new Claude call. Error path includes a "Try again" link.
 
 **v1.11.3** (`c51d6da`) — Live CV re-score in TP drawer + flow simplification. Saad's screenshot of Nadia Hussain's drawer surfaced three concrete issues: stale top score (her 83 was from a CLOSED Cloud Architect job; selected "Match for" pointed at the active version of the same title where her score is 66), missing live CV parse against the selected job (we shipped the backend in v1.11.2 but didn't wire it to UI), and the secondary "Add to Pipeline (review first)" button cluttering the single-action flow.
 

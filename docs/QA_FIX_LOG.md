@@ -668,3 +668,34 @@ Backend (`candidates.ts`)
 - The active Cloud Architect job's must-have list is bloated (8 entries
   per CLAUDE.md "JD must-haves generator is too aggressive" Known Issue).
   Phase 8 adaptive threshold or process-jd.ts prompt tuning will fix.
+
+## v1.11.4 — `0df3deb` — Recruiter-initiated re-score (Saad UX call)
+
+**Finding**: After v1.11.3 shipped, Saad immediately pushed back: "we should
+give recruiter an option if he wants to parse and scan CVs as per new role.
+Not doing it directly." Auto-firing /preview-score on every TP drawer open
+burns Claude calls on candidates the recruiter only wanted to peek at, and
+removes the explicit cost-control choice.
+
+**Fix** (frontend only):
+- Drop `enabled: context==='talent_pool' && !!jobId` auto-trigger from the
+  preview-score useQuery.
+- New state `previewRequested`, initialized from React Query cache. If a
+  result for [candidateId, jobId] is already cached (recruiter previously
+  re-scored this pair this session), skip the button and show result.
+- Gold "Match for" card now opens with: previous stored score + source
+  caption + a primary "🔍 Re-parse & re-score CV against <Job>" button +
+  helper text "Uses Claude · ~10s · cached for this session".
+- Click button → setPreviewRequested(true) + refetch() → spinner →
+  result.
+- Error path now includes a "Try again" underlined link.
+
+**Verification**:
+- First open of Nadia with Cloud Architect: shows "Previous score: 83
+  (from Cloud Architect · 19 Apr 2026)" + Re-score button. No Claude
+  call fires.
+- Click button → ~10s spinner → live 42 with 8 skill chips + AI rec
+  reject.
+- Close + reopen drawer same session → skips button, shows cached 42
+  directly. Network shows no re-fired POST.
+- Open different candidate → cache miss → button reappears.
