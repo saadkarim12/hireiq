@@ -93,6 +93,20 @@ export function CandidatePanel({
     initialData: initialData as CandidateFull | undefined,
   })
 
+  // v1.11.3 — Live CV re-score for the currently-selected TP job. Cached by
+  // [candidateId, jobId] so re-opens within the session don't re-bill Claude.
+  // Only fires in TP context with a job selected.
+  const { data: previewScore, isLoading: previewLoading, isError: previewError } = useQuery({
+    queryKey: ['preview-score', candidateId, jobId],
+    queryFn: async () => {
+      const res = await api.post<any>(`/jobs/${jobId}/preview-score`, { candidateId })
+      return res.data?.data || null
+    },
+    enabled: context === 'talent_pool' && !!jobId,
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+  })
+
   const updateMutation = useMutation({
     mutationFn: (update: { pipelineStage: PipelineStage; rejectionReason?: RejectionReason; note?: string }) =>
       candidatesApi.updateStatus(candidateId, update),
@@ -240,7 +254,83 @@ export function CandidatePanel({
         {/* ── Score Section ──────────────────────────────────────────────── */}
         {candidate && (
           <div className="px-6 py-4 bg-gray-50 border-b border-gray-200 flex-shrink-0">
-            {isScreeningInProgress ? (
+            {context === 'talent_pool' && jobId ? (
+              // v1.11.3 — Live re-score against the currently-selected TP job.
+              // Replaces the candidate's stale stored composite (which is from
+              // their canonical row, often a different job) with a fresh
+              // CV-against-this-job score from /jobs/:jobId/preview-score.
+              <div className="rounded-xl border-2 p-4" style={{ borderColor: '#C9A84C66', background: '#FDF6E3' }}>
+                <p className="text-[10px] font-bold uppercase tracking-wide text-center mb-2" style={{ color: '#92400E' }}>
+                  Match for: {jobTitle || 'selected job'}
+                </p>
+                {previewLoading ? (
+                  <div className="flex flex-col items-center gap-2 py-4">
+                    <span className="inline-block animate-spin text-xl">🔄</span>
+                    <p className="text-xs text-gray-600">Re-scoring CV against {jobTitle || 'this job'}…</p>
+                    <p className="text-[10px] text-gray-400">Usually 5-10s</p>
+                  </div>
+                ) : previewError || !previewScore ? (
+                  <div className="text-center py-3">
+                    <p className="text-xs text-red-700">Live re-score failed</p>
+                    <p className="text-[10px] text-gray-500 mt-1">Showing stored score: <b>{s('cvMatchScore') ?? '—'}</b></p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex items-center justify-center gap-5">
+                      <div className="text-center">
+                        <div className="text-5xl font-bold leading-none"
+                          style={{ color: (previewScore.cvMatchScore ?? 0) >= 75 ? '#166534' : (previewScore.cvMatchScore ?? 0) >= 55 ? '#92400E' : '#991B1B' }}>
+                          {previewScore.cvMatchScore ?? '—'}
+                        </div>
+                        <p className="text-xs font-semibold text-gray-700 mt-1">CV Screening Score</p>
+                        <p className="text-[10px] text-gray-500">Live re-score · skills + experience</p>
+                      </div>
+                      <div className="w-px h-14 bg-amber-200/70" />
+                      <div className="flex flex-col gap-1 opacity-60">
+                        <div className="flex items-center gap-1.5 text-[11px] text-gray-500"><span className="w-1 h-1 rounded-full bg-gray-400" /> Commitment · after WhatsApp</div>
+                        <div className="flex items-center gap-1.5 text-[11px] text-gray-500"><span className="w-1 h-1 rounded-full bg-gray-400" /> Salary Fit · after WhatsApp</div>
+                      </div>
+                    </div>
+
+                    {Array.isArray(previewScore.evidence?.mustHaveSkills) && previewScore.evidence.mustHaveSkills.length > 0 && (
+                      <div className="pt-3 mt-3 border-t border-amber-200/50">
+                        <p className="text-[10px] font-bold text-gray-500 uppercase mb-1.5">Required Skills</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {previewScore.evidence.mustHaveSkills.map((sk: any, i: number) => (
+                            <span key={i} className="text-xs px-2 py-0.5 rounded-md font-medium"
+                              style={{ background: sk.found ? '#DCFCE7' : '#FEE2E2', color: sk.found ? '#166534' : '#991B1B' }}>
+                              {sk.found ? '✓' : '✗'} {sk.skill}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {previewScore.hardFilterPass !== undefined && previewScore.hardFilterPass !== null && (
+                      <div className="mt-2 text-[10px] text-center">
+                        {previewScore.hardFilterPass
+                          ? <span className="text-green-700 font-medium">✓ Passes all required filters</span>
+                          : <span className="text-red-700 font-medium">✗ {previewScore.hardFilterFailReason || 'Fails required filters'}</span>}
+                      </div>
+                    )}
+
+                    {previewScore.aiRecommendation?.recommendation && (
+                      <div className="mt-3 pt-3 border-t border-amber-200/50 text-[11px] text-center">
+                        <span className="font-semibold uppercase tracking-wide text-gray-500">AI: </span>
+                        <span className="font-medium"
+                          style={{ color:
+                            previewScore.aiRecommendation.recommendation === 'advance' ? '#166534' :
+                            previewScore.aiRecommendation.recommendation === 'reject' ? '#991B1B' : '#92400E'
+                          }}>
+                          {previewScore.aiRecommendation.recommendation}
+                        </span>
+                        {previewScore.aiRecommendation.reason ? <> — <span className="text-gray-600">{previewScore.aiRecommendation.reason}</span></> : null}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            ) : isScreeningInProgress ? (
               <div className="flex items-center justify-center gap-3 py-3 bg-blue-50 border border-blue-200 rounded-xl">
                 <span className="inline-block animate-spin text-xl">🔄</span>
                 <div className="text-center">
@@ -590,22 +680,13 @@ export function CandidatePanel({
             {context === 'talent_pool' ? (
               <div className="space-y-2">
                 {jobId ? (
-                  <>
-                    <button
-                      onClick={() => setShowApproveConfirm(true)}
-                      className="w-full py-2.5 text-sm font-semibold text-white rounded-xl flex items-center justify-center gap-2"
-                      style={{ background: '#0A3D2E' }}
-                    >
-                      ✅ Approve to L1
-                    </button>
-                    <button
-                      onClick={onAddToPipeline}
-                      className="w-full py-2 text-sm font-medium rounded-xl border"
-                      style={{ borderColor: '#0A3D2E', color: '#0A3D2E', background: 'white' }}
-                    >
-                      📥 Add to Pipeline (review first)
-                    </button>
-                  </>
+                  <button
+                    onClick={() => setShowApproveConfirm(true)}
+                    className="w-full py-2.5 text-sm font-semibold text-white rounded-xl flex items-center justify-center gap-2"
+                    style={{ background: '#0A3D2E' }}
+                  >
+                    ✅ Approve to L1
+                  </button>
                 ) : (
                   <div className="p-3 rounded-xl text-xs text-center" style={{ background: '#FEF3C7', color: '#92400E' }}>
                     Select a job using "Match to job" above to invite this candidate

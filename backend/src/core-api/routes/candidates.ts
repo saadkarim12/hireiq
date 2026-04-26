@@ -302,10 +302,13 @@ candidatesRouter.get('/:id/history', async (req: AuthRequest, res: any) => {
     const idMatchers: any[] = [{ waNumberHash: target.waNumberHash }]
     if (target.email) idMatchers.push({ email: target.email })
 
+    // v1.11.3 — Include the canonical row in history. Previously excluded
+    // because its scores were shown at the top of the drawer; now the top
+    // shows a LIVE preview-score for the currently-selected job, so the
+    // canonical's stored scores belong in history alongside other past apps.
     const history = await prisma.candidate.findMany({
       where: {
         agencyId: target.agencyId,
-        id: { not: target.id },
         OR: idMatchers,
       },
       select: {
