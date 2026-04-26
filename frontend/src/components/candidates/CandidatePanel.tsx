@@ -45,6 +45,9 @@ interface CandidatePanelProps {
   onStatusUpdate?: () => void
   /** TP only: invoked when recruiter clicks "Add to Pipeline". Parent owns the mutation. */
   onAddToPipeline?: () => void
+  /** TP only: invoked when recruiter clicks "Approve to L1" — skips Applied stage,
+   *  fires WhatsApp screening directly. Parent owns the mutation. */
+  onApproveToL1?: () => void
   /** CV Inbox only: invoked when recruiter clicks "Add to Pool". Parent owns the mutation. */
   onAddToPool?: () => void
 }
@@ -72,7 +75,7 @@ type Tab = 'summary' | 'transcript' | 'cv'
 
 export function CandidatePanel({
   candidateId, context, jobId, jobTitle, initialData,
-  onClose, onStatusUpdate, onAddToPipeline, onAddToPool,
+  onClose, onStatusUpdate, onAddToPipeline, onApproveToL1, onAddToPool,
 }: CandidatePanelProps) {
   const [activeTab, setActiveTab] = useState<Tab>('summary')
   const [showRejectModal, setShowRejectModal] = useState(false)
@@ -335,6 +338,18 @@ export function CandidatePanel({
               })()
             )}
 
+            {/* TP-only: when no job selected, caption that the score block is from
+                the candidate's last application — otherwise the four numbers look
+                anchorless. The Match-for gold card already carries its own header. */}
+            {context === 'talent_pool' && !jobTitle && !isPreScreening && (candidate as any).job?.title && (
+              <p className="mt-2 text-[11px] text-gray-500 text-center">
+                From last application: <span className="font-medium text-gray-700">{(candidate as any).job.title}</span>
+                {(candidate as any).job?.hiringCompany ? <> — {(candidate as any).job.hiringCompany}</> : null}
+                {' · '}{candidate.pipelineStage}
+                {candidate.createdAt ? <> · {new Date(candidate.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</> : null}
+              </p>
+            )}
+
             {/* Authenticity flag (CV-polished warning) */}
             {candidate.authenticityFlag && candidate.authenticityFlag !== 'none' && !isScreeningInProgress && (
               <div className="mt-3 flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
@@ -575,13 +590,22 @@ export function CandidatePanel({
             {context === 'talent_pool' ? (
               <div className="space-y-2">
                 {jobId ? (
-                  <button
-                    onClick={onAddToPipeline}
-                    className="w-full py-2.5 text-sm font-semibold text-white rounded-xl flex items-center justify-center gap-2"
-                    style={{ background: '#0A3D2E' }}
-                  >
-                    📥 Add to Pipeline
-                  </button>
+                  <>
+                    <button
+                      onClick={() => setShowApproveConfirm(true)}
+                      className="w-full py-2.5 text-sm font-semibold text-white rounded-xl flex items-center justify-center gap-2"
+                      style={{ background: '#0A3D2E' }}
+                    >
+                      ✅ Approve to L1
+                    </button>
+                    <button
+                      onClick={onAddToPipeline}
+                      className="w-full py-2 text-sm font-medium rounded-xl border"
+                      style={{ borderColor: '#0A3D2E', color: '#0A3D2E', background: 'white' }}
+                    >
+                      📥 Add to Pipeline (review first)
+                    </button>
+                  </>
                 ) : (
                   <div className="p-3 rounded-xl text-xs text-center" style={{ background: '#FEF3C7', color: '#92400E' }}>
                     Select a job using "Match to job" above to invite this candidate
@@ -680,7 +704,16 @@ export function CandidatePanel({
             <div className="flex gap-2 pt-2">
               <button onClick={() => setShowApproveConfirm(false)} className="flex-1 btn-secondary text-sm">Cancel</button>
               <button
-                onClick={handleApprove}
+                onClick={() => {
+                  // TP context: parent owns the /invite-from-pool POST with approveToL1:true.
+                  // Other contexts: PATCH /candidates/:id/status via updateMutation.
+                  if (context === 'talent_pool') {
+                    setShowApproveConfirm(false)
+                    onApproveToL1?.()
+                  } else {
+                    handleApprove()
+                  }
+                }}
                 disabled={updateMutation.isPending}
                 className="flex-1 btn-primary text-sm"
               >
@@ -821,6 +854,13 @@ interface ApplicationHistoryItem {
   pipelineStage: string
   compositeScore: number | null
   cvMatchScore: number | null
+  commitmentScore: number | null
+  salaryFitScore: number | null
+  aiRecommendation: string | null
+  aiRecommendationReason: string | null
+  rejectedFromStage: string | null
+  rejectionReason: string | null
+  recruiterNote: string | null
   createdAt: string
 }
 
@@ -832,6 +872,7 @@ function ApplicationHistoryBlock({ candidateId }: { candidateId: string }) {
       return res.data.data
     },
   })
+  const [expandedId, setExpandedId] = useState<string | null>(null)
 
   return (
     <div>
@@ -848,23 +889,64 @@ function ApplicationHistoryBlock({ candidateId }: { candidateId: string }) {
         <div className="space-y-2">
           {data.map(h => {
             const score = h.compositeScore ?? h.cvMatchScore ?? null
+            const isOpen = expandedId === h.id
+            const isReject = h.pipelineStage === 'rejected'
             return (
-              <div key={h.id} className="p-3 rounded-xl border border-gray-100">
+              <button
+                key={h.id}
+                type="button"
+                onClick={() => setExpandedId(isOpen ? null : h.id)}
+                className="w-full text-left p-3 rounded-xl border border-gray-100 hover:bg-gray-50 transition-colors"
+              >
                 <div className="flex items-center justify-between gap-2">
                   <p className="text-sm font-medium text-gray-800 truncate">
                     {h.jobTitle}{h.hiringCompany ? <span className="text-gray-400 font-normal"> · {h.hiringCompany}</span> : null}
                   </p>
-                  {score != null && (
-                    <span className="text-xs font-bold px-2 py-0.5 rounded-full flex-shrink-0"
-                      style={{ background: '#E8F5EE', color: '#0A3D2E' }}>
-                      {score}
-                    </span>
-                  )}
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    {score != null && (
+                      <span className="text-xs font-bold px-2 py-0.5 rounded-full"
+                        style={{ background: '#E8F5EE', color: '#0A3D2E' }}>
+                        {score}
+                      </span>
+                    )}
+                    <span className="text-gray-400 text-xs">{isOpen ? '▾' : '▸'}</span>
+                  </div>
                 </div>
                 <p className="text-xs text-gray-400 mt-0.5 capitalize">
-                  {h.pipelineStage.replace(/_/g, ' ')} · {new Date(h.createdAt).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' })}
+                  {isReject && h.rejectedFromStage
+                    ? <>rejected at {h.rejectedFromStage.replace(/_/g, ' ')}</>
+                    : h.pipelineStage.replace(/_/g, ' ')}
+                  {' · '}
+                  {new Date(h.createdAt).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' })}
                 </p>
-              </div>
+
+                {isOpen && (
+                  <div className="mt-3 pt-3 border-t border-gray-100 space-y-2">
+                    {(h.cvMatchScore != null || h.commitmentScore != null || h.salaryFitScore != null) && (
+                      <div className="flex flex-wrap gap-3 text-[11px]">
+                        {h.cvMatchScore != null && <span className="text-gray-600">CV Match: <b className="text-gray-900">{h.cvMatchScore}</b></span>}
+                        {h.commitmentScore != null && <span className="text-gray-600">Commitment: <b className="text-gray-900">{h.commitmentScore}</b></span>}
+                        {h.salaryFitScore != null && <span className="text-gray-600">Salary Fit: <b className="text-gray-900">{h.salaryFitScore}</b></span>}
+                        {h.compositeScore != null && <span className="text-gray-600">Composite: <b className="text-gray-900">{h.compositeScore}</b></span>}
+                      </div>
+                    )}
+                    {h.aiRecommendation && (
+                      <p className="text-[11px] text-gray-700">
+                        <span className="font-semibold uppercase tracking-wide text-gray-500">AI:</span> {h.aiRecommendation}
+                        {h.aiRecommendationReason ? <> — <span className="text-gray-600">{h.aiRecommendationReason}</span></> : null}
+                      </p>
+                    )}
+                    {isReject && h.rejectionReason && (
+                      <p className="text-[11px] text-red-700">
+                        <span className="font-semibold uppercase tracking-wide">Rejected:</span> {h.rejectionReason}
+                      </p>
+                    )}
+                    {h.recruiterNote && (
+                      <p className="text-[11px] text-gray-700 italic">"{h.recruiterNote}"</p>
+                    )}
+                  </div>
+                )}
+              </button>
             )
           })}
         </div>

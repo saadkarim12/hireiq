@@ -73,6 +73,13 @@ bulkUploadRouter.post('/bulk-upload', upload.array('cvFiles', 50), async (req: A
         consentGiven: true, consentTimestamp: new Date(),
         sourceChannel: sourceChannel || 'bulk_upload',
         pipelineStage: 'applied', conversationState: 'completed',
+        pipelineStageHistory: JSON.parse(JSON.stringify([{
+          from: null,
+          to: 'applied',
+          timestamp: new Date().toISOString(),
+          userId: req.user!.id,
+          entryPath: 'cv_inbox',
+        }])),
         dataTags: JSON.parse(JSON.stringify({
           bulkUploaded: true, sourceChannel: sourceChannel || 'bulk_upload',
             jobTitle: jobRecord?.title || null, jobCompany: jobRecord?.hiringCompany || null,
@@ -242,13 +249,36 @@ bulkUploadRouter.get('/jobs/:jobId/talent-matches', async (req: AuthRequest, res
   }
 })
 
+// Preview-score a pool candidate against an arbitrary job. No DB write.
+// Talent Pool drawer uses this when a job is selected via "Match to Job".
+bulkUploadRouter.post('/jobs/:jobId/preview-score', async (req: AuthRequest, res: Response) => {
+  try {
+    const { jobId } = req.params
+    const { candidateId } = req.body
+    if (!candidateId) return res.status(400).json({ success: false, error: { code: 'VALIDATION', message: 'candidateId required' } })
+    const job = await prisma.job.findFirst({ where: { id: jobId, agencyId: req.user!.agencyId } })
+    if (!job) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Job not found' } })
+    const candidate = await prisma.candidate.findFirst({ where: { id: candidateId, agencyId: req.user!.agencyId } })
+    if (!candidate) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Candidate not found' } })
+
+    const aiRes = await axios.post(`${AI_URL}/api/v1/ai/preview-score-cv`, { candidateId, jobId }, { timeout: 60000 })
+    res.json({ success: true, data: aiRes.data?.data })
+  } catch (err: any) {
+    logger.error('Preview-score error', { err: err.message })
+    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to preview-score' } })
+  }
+})
+
 bulkUploadRouter.post('/jobs/:jobId/invite-from-pool', async (req: AuthRequest, res: Response) => {
   try {
     const { jobId } = req.params
-    const { candidateIds } = req.body
+    const { candidateIds, approveToL1 = false } = req.body as { candidateIds: string[]; approveToL1?: boolean }
     if (!candidateIds?.length) return res.status(400).json({ success: false, error: { code: 'VALIDATION', message: 'No candidates selected' } })
     const job = await prisma.job.findFirst({ where: { id: jobId, agencyId: req.user!.agencyId } })
     if (!job) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Job not found' } })
+
+    const targetStage = approveToL1 ? 'shortlisted' : 'applied'
+    const now = new Date().toISOString()
 
     let invited = 0
     const skipped: Array<{ candidateId: string; existingId: string; fullName: string | null }> = []
@@ -256,9 +286,6 @@ bulkUploadRouter.post('/jobs/:jobId/invite-from-pool', async (req: AuthRequest, 
       const c = await prisma.candidate.findFirst({ where: { id: candidateId, agencyId: req.user!.agencyId } })
       if (!c) continue
 
-      // Identity guard: a pool candidate cannot be added to the same job twice.
-      // Match on email (canonical identity) OR on the wa_number_hash prefix
-      // (legacy rows already carry a timestamp suffix from the pre-fix code path).
       const baseHash = c.waNumberHash.split('_')[0]
       const existing = await prisma.candidate.findFirst({
         where: {
@@ -285,24 +312,48 @@ bulkUploadRouter.post('/jobs/:jobId/invite-from-pool', async (req: AuthRequest, 
         cvType: c.cvType || 'full_cv',
         consentGiven: true, consentTimestamp: new Date(),
         sourceChannel: 'talent_pool_match',
-        pipelineStage: 'applied', conversationState: 'initiated',
+        pipelineStage: targetStage,
+        // When approveToL1, write screening_q1 synchronously before async sim
+        // (mirrors the race-fix pattern in candidates.ts PATCH /:id/status).
+        conversationState: approveToL1 ? 'screening_q1' : 'initiated',
+        shortlistedAt: approveToL1 ? new Date() : null,
+        pipelineStageHistory: JSON.parse(JSON.stringify([{
+          from: null,
+          to: targetStage,
+          timestamp: now,
+          userId: req.user!.id,
+          entryPath: 'tp_direct',
+        }])),
         dataTags: JSON.parse(JSON.stringify({ ...(c.dataTags as any || {}), invitedFromPool: true, originalCandidateId: c.id, jobTitle: job.title }).slice(0, 30000)),
       }})
 
+      // Score-CV for both paths so the drawer has a recommendation.
       try {
-        await fetch(`http://localhost:${process.env.AI_ENGINE_PORT || 3002}/api/v1/ai/score-cv`, {
+        await fetch(`${AI_URL}/api/v1/ai/score-cv`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ candidateId: newCandidate.id, jobId }),
         })
       } catch (e) {
-        logger.warn('CV-only scoring failed on pool invite — candidate landed in Applied without recommendation', { candidateId: newCandidate.id })
+        logger.warn('CV-only scoring failed on pool invite', { candidateId: newCandidate.id })
+      }
+
+      // approveToL1 path: fire WhatsApp screening simulation (same as Applied → L1 today).
+      if (approveToL1) {
+        try {
+          fetch(`http://localhost:${process.env.WHATSAPP_PORT || 3003}/api/v1/whatsapp/simulate-screening`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ candidateId: newCandidate.id, jobId }),
+          }).catch(() => {})
+        } catch {}
       }
 
       invited++
     }
-    res.json({ success: true, data: { invited, skipped, jobTitle: job.title } })
-  } catch {
+    res.json({ success: true, data: { invited, skipped, jobTitle: job.title, targetStage } })
+  } catch (err: any) {
+    logger.error('invite-from-pool error', { err: err.message })
     res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Failed' } })
   }
 })

@@ -316,12 +316,26 @@ analyticsRouter.get('/', async (req: AuthRequest, res) => {
       }))
       .sort((a, b) => b.candidates - a.candidates)
 
-    // Total stage transitions across all candidates — used by the frontend to
-    // decide whether to render the Time at Stage chart at all.
     const totalTransitions = candidates.reduce(
       (n, c) => n + (Array.isArray(c.pipelineStageHistory) ? (c.pipelineStageHistory as any[]).length : 0),
       0,
     )
+
+    // ── TP-direct L1 conversions ──────────────────────────────────────────────
+    // L1+ candidates whose first stage-history entry is { to: 'shortlisted',
+    // entryPath: 'tp_direct' } — i.e. they skipped the Applied review step.
+    // Denominator: all candidates that ever reached L1+.
+    const l1Candidates = candidates.filter(c =>
+      ['shortlisted', 'interviewing', 'offered', 'hired'].includes(c.pipelineStage),
+    )
+    const tpDirectL1Count = l1Candidates.filter(c => {
+      const h = Array.isArray(c.pipelineStageHistory) ? (c.pipelineStageHistory as any[]) : []
+      const first = h[0]
+      return first?.to === 'shortlisted' && first?.entryPath === 'tp_direct'
+    }).length
+    const tpDirectL1Percent = l1Candidates.length > 0
+      ? Math.round((tpDirectL1Count / l1Candidates.length) * 100)
+      : 0
 
     res.json({
       success: true,
@@ -329,15 +343,18 @@ analyticsRouter.get('/', async (req: AuthRequest, res) => {
         period,
         jobId,
         kpis: {
-          activeJobs,                                  // agency-wide, never filtered
+          activeJobs,
           avgTimeToFillDays,
           hireRate,
-          costPerHire: null,                           // Phase 7
+          costPerHire: null,
+          tpDirectL1Count,
+          tpDirectL1Percent,
+          tpDirectL1Total: l1Candidates.length,
         },
         funnel,
         avgTimeAtStage,
         sourcePerformance,
-        recruiterPerformance: [],                      // Phase 7 — requires per-action user tracking
+        recruiterPerformance: [],
         meta: {
           totalCandidates: candidates.length,
           totalTransitions,

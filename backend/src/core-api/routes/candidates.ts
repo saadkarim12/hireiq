@@ -62,6 +62,7 @@ candidatesRouter.get('/:id', async (req: AuthRequest, res) => {
       include: {
         messages: { orderBy: { createdAt: 'asc' } },
         interview: true,
+        job: { select: { title: true, hiringCompany: true } },
       },
     })
 
@@ -309,6 +310,9 @@ candidatesRouter.get('/:id/history', async (req: AuthRequest, res: any) => {
       },
       select: {
         id: true, pipelineStage: true, compositeScore: true, cvMatchScore: true,
+        commitmentScore: true, salaryFitScore: true,
+        aiRecommendation: true, aiRecommendationReason: true,
+        rejectedFromStage: true, rejectionReason: true, recruiterNote: true,
         createdAt: true,
         job: { select: { title: true, hiringCompany: true } },
       },
@@ -325,6 +329,13 @@ candidatesRouter.get('/:id/history', async (req: AuthRequest, res: any) => {
         pipelineStage: h.pipelineStage,
         compositeScore: h.compositeScore,
         cvMatchScore: h.cvMatchScore,
+        commitmentScore: h.commitmentScore,
+        salaryFitScore: h.salaryFitScore,
+        aiRecommendation: h.aiRecommendation,
+        aiRecommendationReason: h.aiRecommendationReason,
+        rejectedFromStage: h.rejectedFromStage,
+        rejectionReason: h.rejectionReason,
+        recruiterNote: h.recruiterNote,
         createdAt: h.createdAt,
       })),
     })

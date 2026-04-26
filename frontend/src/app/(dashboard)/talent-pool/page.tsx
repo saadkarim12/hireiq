@@ -149,6 +149,42 @@ export default function TalentPoolPage() {
     }
   }
 
+  const handleApproveToL1 = async (candidate: any) => {
+    if (!selectedJobId) {
+      toast.error('Please select a job first using Match to Job')
+      return
+    }
+    setInviting(true)
+    try {
+      const res = await api.post(`/jobs/${selectedJobId}/invite-from-pool`, {
+        candidateIds: [candidate.id],
+        approveToL1: true,
+      })
+      const data = res.data as any
+      if (data.success) {
+        const invited: number = data.data?.invited ?? 0
+        const skipped: Array<{ fullName: string | null }> = data.data?.skipped ?? []
+        if (invited > 0) {
+          toast.success(`${candidate.fullName} approved to L1 — WhatsApp screening starting (~20s)`)
+        } else if (skipped.length > 0) {
+          toast(`${candidate.fullName} is already in this job's pipeline`, { icon: 'ℹ️' })
+        }
+        setSelectedCandidate(null)
+        qc.invalidateQueries({ queryKey: ['dashboard'] })
+        if (selectedJobId) {
+          const refresh = await api.get<any[]>(`/jobs/${selectedJobId}/talent-matches?minScore=0`)
+          setMatchedCandidates((refresh.data?.data as any)?.matches || [])
+        }
+      } else {
+        toast.error('Approve to L1 failed')
+      }
+    } catch {
+      toast.error('Approve failed — is backend running?')
+    } finally {
+      setInviting(false)
+    }
+  }
+
   return (
     <div className="max-w-5xl mx-auto">
       <div className="flex items-center justify-between mb-6">
@@ -306,6 +342,7 @@ export default function TalentPoolPage() {
           initialData={selectedCandidate}
           onClose={() => setSelectedCandidate(null)}
           onAddToPipeline={() => handleInviteToScreening(selectedCandidate)}
+          onApproveToL1={() => handleApproveToL1(selectedCandidate)}
         />
       )}
     </div>

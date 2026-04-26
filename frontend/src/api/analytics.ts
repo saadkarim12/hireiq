@@ -11,6 +11,9 @@ export interface AnalyticsPayload {
     avgTimeToFillDays: number | null
     hireRate: number
     costPerHire: number | null
+    tpDirectL1Count?: number
+    tpDirectL1Percent?: number
+    tpDirectL1Total?: number
   }
   funnel: Array<{ stage: 'applied' | 'l1' | 'l2' | 'l3' | 'final'; count: number; dropToNext: number }>
   avgTimeAtStage: Array<{ stage: 'applied' | 'l1' | 'l2' | 'l3' | 'final'; avgDays: number | null; sample: number }>

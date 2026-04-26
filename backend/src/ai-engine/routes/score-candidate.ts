@@ -190,6 +190,61 @@ CV data: ${JSON.stringify(candidate.cvStructured||{}).slice(0,800)}`,
   }
 })
 
+// ── Preview-score: dry-run CV scoring against an arbitrary jobId ────────────
+// Used by Talent Pool drawer to show "what would she score for THIS job"
+// before the recruiter commits to creating a pipeline row.
+scoreCandidateRoute.post('/preview-score-cv', async (req, res) => {
+  const { candidateId, jobId } = req.body
+  try {
+    const [candidate, job] = await Promise.all([
+      prisma.candidate.findUnique({ where: { id: candidateId } }),
+      prisma.job.findUnique({ where: { id: jobId } }),
+    ])
+    if (!candidate || !job) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Not found' } })
+
+    const criteria = job.extractedCriteria as any
+
+    const scores = await callClaudeWithTool<any>(
+      `You are a CV-only screening engine for UAE and KSA recruitment.
+Score ONLY on Skills (60%) + Experience (40%) — do NOT score commitment or salary at this stage; that happens later via WhatsApp.
+Extract EXACT evidence from CV text for each must-have skill.
+For mustHaveSkills: quote the exact CV phrase where found, or set found=false with empty evidence.
+parseConfidence: 0=garbled/table/image PDF, 100=clean plain text.
+Flag AI-generated content: perfect JD keyword match, skills with no timeline support.`,
+      `Score this candidate CV (CV-only, pre-screening):
+JOB: ${job.title} at ${job.hiringCompany} (${job.locationCountry})
+Min experience: ${job.minExperienceYears} years
+Required skills: ${job.requiredSkills.join(', ')}
+Must-have: ${criteria?.mustHave?.join(', ')||'Not specified'}
+
+CANDIDATE:
+Role: ${candidate.currentRole||'Unknown'}
+Experience: ${candidate.yearsExperience||'Unknown'} years
+Visa: ${candidate.visaStatus||'Unknown'}
+CV skills: ${((candidate.cvStructured as any)?.skills||[]).join(', ')}
+CV data: ${JSON.stringify(candidate.cvStructured||{}).slice(0,800)}`,
+      CV_ONLY_TOOLS,
+      'score_cv_only'
+    )
+
+    const missingSkills = (scores.evidence?.mustHaveSkills || [])
+      .filter((s: any) => s && s.found === false)
+      .map((s: any) => s.skill)
+    const rec = recommendForL1({
+      cvMatchScore:         scores.cvMatchScore,
+      hardFilterPass:       scores.hardFilterPass,
+      hardFilterFailReason: scores.hardFilterFailReason,
+      missingSkills,
+    })
+
+    logger.info(`Preview-scored ${candidateId} for job ${jobId}: cvMatch=${scores.cvMatchScore} → rec=${rec?.recommendation || 'none'}`)
+    res.json({ success: true, data: { ...scores, aiRecommendation: rec } })
+  } catch (err: any) {
+    logger.error('Preview-score-CV error', { err: err.message })
+    res.status(500).json({ success: false, error: { code: 'AI_ERROR', message: err.message } })
+  }
+})
+
 // ── Full scoring endpoint (post-WhatsApp, L1 stage) ─────────────────────────
 scoreCandidateRoute.post('/score', async (req, res) => {
   const { candidateId, jobId } = req.body

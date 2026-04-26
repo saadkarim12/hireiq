@@ -152,9 +152,21 @@ export default function AnalyticsPage() {
 
         {/* Funnel */}
         <div className="bg-white border border-gray-200 rounded-2xl p-5">
-          <div className="mb-4">
-            <h2 className="text-base font-semibold" style={{ color: '#0A3D2E' }}>Pipeline Funnel</h2>
-            <p className="text-xs text-gray-400 mt-0.5">Count per stage + % of Applied + drop-off</p>
+          <div className="mb-4 flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-base font-semibold" style={{ color: '#0A3D2E' }}>Pipeline Funnel</h2>
+              <p className="text-xs text-gray-400 mt-0.5">Count per stage + % of Applied + drop-off</p>
+            </div>
+            {kpis && (kpis.tpDirectL1Total ?? 0) > 0 && (
+              <div className="text-right flex-shrink-0">
+                <div className="text-xs uppercase tracking-wide font-semibold text-gray-400">TP → L1 direct</div>
+                <div className="text-lg font-bold" style={{ color: '#0A3D2E' }}>
+                  {kpis.tpDirectL1Count ?? 0}
+                  <span className="text-xs font-medium text-gray-500"> / {kpis.tpDirectL1Total} L1 entries</span>
+                </div>
+                <div className="text-xs text-amber-700">{kpis.tpDirectL1Percent ?? 0}% skipped Applied review</div>
+              </div>
+            )}
           </div>
 
           {appliedCount < 5 ? (
