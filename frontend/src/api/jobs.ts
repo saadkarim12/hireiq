@@ -33,8 +33,8 @@ export const jobsApi = {
     return res.data.data
   },
 
-  // Update job status
-  updateStatus: async (id: string, status: 'paused' | 'closed') => {
+  // Update job status (archive / unarchive / pause / close / reactivate)
+  updateStatus: async (id: string, status: 'draft' | 'active' | 'paused' | 'closed' | 'archived') => {
     const res = await api.patch<Job>(`/jobs/${id}/status`, { status })
     return res.data.data
   },

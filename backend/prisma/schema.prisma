@@ -38,6 +38,7 @@ enum JobStatus {
   active
   paused
   closed
+  archived
 }
 
 enum JobType {

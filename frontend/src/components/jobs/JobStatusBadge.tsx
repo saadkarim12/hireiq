@@ -4,10 +4,11 @@ import type { JobStatus } from '@/types'
 import clsx from 'clsx'
 
 const statusConfig: Record<JobStatus, { label: string; classes: string; dot: string }> = {
-  draft:  { label: 'Draft',  classes: 'bg-gray-100 text-gray-600',  dot: 'bg-gray-400' },
-  active: { label: 'Active', classes: 'bg-green-50 text-green-700',  dot: 'bg-green-500' },
-  paused: { label: 'Paused', classes: 'bg-amber-50 text-amber-700',  dot: 'bg-amber-500' },
-  closed: { label: 'Closed', classes: 'bg-red-50 text-red-600',     dot: 'bg-red-400' },
+  draft:    { label: 'Draft',    classes: 'bg-gray-100 text-gray-600',    dot: 'bg-gray-400' },
+  active:   { label: 'Active',   classes: 'bg-green-50 text-green-700',   dot: 'bg-green-500' },
+  paused:   { label: 'Paused',   classes: 'bg-amber-50 text-amber-700',   dot: 'bg-amber-500' },
+  closed:   { label: 'Closed',   classes: 'bg-red-50 text-red-600',       dot: 'bg-red-400' },
+  archived: { label: 'Archived', classes: 'bg-slate-100 text-slate-600',  dot: 'bg-slate-400' },
 }
 
 export function JobStatusBadge({ status }: { status: JobStatus }) {

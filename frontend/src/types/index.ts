@@ -6,7 +6,7 @@
 export type UserRole = 'agency_admin' | 'senior_recruiter' | 'recruiter' | 'viewer' | 'hireiq_admin'
 export type UserStatus = 'invited' | 'active' | 'disabled'
 export type SubscriptionTier = 'pilot' | 'starter' | 'growth' | 'enterprise'
-export type JobStatus = 'draft' | 'active' | 'paused' | 'closed'
+export type JobStatus = 'draft' | 'active' | 'paused' | 'closed' | 'archived'
 export type JobType = 'onsite' | 'hybrid' | 'remote'
 export type Currency = 'AED' | 'SAR' | 'USD'
 export type Language = 'ar' | 'en'

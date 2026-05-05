@@ -1,13 +1,14 @@
 'use client'
 // src/app/(dashboard)/jobs/page.tsx
-import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useState, useRef, useEffect } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import Link from 'next/link'
 import { jobsApi } from '@/api/jobs'
 import { JobStatusBadge } from '@/components/jobs/JobStatusBadge'
-import { PlusIcon, MagnifyingGlassIcon, FunnelIcon } from '@heroicons/react/24/outline'
+import { PlusIcon, MagnifyingGlassIcon, EllipsisVerticalIcon } from '@heroicons/react/24/outline'
 import { formatDistanceToNow } from 'date-fns'
-import type { JobStatus } from '@/types'
+import { toast } from 'react-hot-toast'
+import type { JobStatus, Job } from '@/types'
 import clsx from 'clsx'
 
 const STATUS_TABS: { label: string; value: JobStatus | 'all' }[] = [
@@ -16,11 +17,69 @@ const STATUS_TABS: { label: string; value: JobStatus | 'all' }[] = [
   { label: 'Draft', value: 'draft' },
   { label: 'Paused', value: 'paused' },
   { label: 'Closed', value: 'closed' },
+  { label: 'Archived', value: 'archived' },
 ]
+
+function JobCardMenu({ job, onAction }: { job: Job; onAction: (action: 'archive' | 'unarchive' | 'edit') => void }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  const isArchived = job.status === 'archived'
+  const isDraft = job.status === 'draft'
+
+  return (
+    <div className="relative" ref={ref} onClick={(e) => e.preventDefault()}>
+      <button
+        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen(o => !o) }}
+        className="p-1 rounded-md hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition-colors"
+        aria-label="Job actions"
+      >
+        <EllipsisVerticalIcon className="w-4 h-4" />
+      </button>
+      {open && (
+        <div className="absolute right-0 top-7 z-10 w-44 bg-white border border-gray-200 rounded-lg shadow-lg py-1 text-sm">
+          {isDraft && (
+            <button
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen(false); onAction('edit') }}
+              className="w-full text-left px-3 py-2 hover:bg-gray-50 text-gray-700"
+            >
+              ✏️ Resume editing
+            </button>
+          )}
+          {!isArchived ? (
+            <button
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen(false); onAction('archive') }}
+              className="w-full text-left px-3 py-2 hover:bg-gray-50 text-gray-700"
+            >
+              📦 Archive
+            </button>
+          ) : (
+            <button
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen(false); onAction('unarchive') }}
+              className="w-full text-left px-3 py-2 hover:bg-gray-50 text-gray-700"
+            >
+              ↩️ Unarchive (back to Draft)
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
 
 export default function JobsPage() {
   const [statusFilter, setStatusFilter] = useState<JobStatus | 'all'>('all')
   const [search, setSearch] = useState('')
+  const queryClient = useQueryClient()
 
   const { data, isLoading } = useQuery({
     queryKey: ['jobs', { status: statusFilter }],
@@ -34,9 +93,24 @@ export default function JobsPage() {
       : true
   )
 
+  const handleAction = async (job: Job, action: 'archive' | 'unarchive' | 'edit') => {
+    if (action === 'edit') {
+      window.location.href = `/jobs/new?draftId=${job.id}`
+      return
+    }
+    const target = action === 'archive' ? 'archived' : 'draft'
+    try {
+      await jobsApi.updateStatus(job.id, target)
+      toast.success(action === 'archive' ? 'Job archived' : 'Job unarchived (now Draft)')
+      queryClient.invalidateQueries({ queryKey: ['jobs'] })
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error?.message || 'Failed to update job')
+    }
+  }
+
   return (
     <>
-      
+
       <div className="p-6 space-y-5">
 
         {/* Header actions */}
@@ -104,65 +178,72 @@ export default function JobsPage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-            {jobs.map((job) => (
-              <Link
-                key={job.id}
-                href={`/jobs/${job.id}/pipeline`}
-                className="card card-hover rounded-xl p-5 flex flex-col gap-3 group"
-              >
-                {/* Header */}
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex-1 min-w-0">
-                    <h3 className="text-sm font-bold text-brand-navy group-hover:text-brand-blue transition-colors truncate">
-                      {job.title}
-                    </h3>
-                    <p className="text-xs text-gray-500 mt-0.5">{job.hiringCompany}</p>
+            {jobs.map((job) => {
+              const cardHref = job.status === 'draft' ? `/jobs/new?draftId=${job.id}` : `/jobs/${job.id}/pipeline`
+              return (
+                <div key={job.id} className="relative">
+                  <Link
+                    href={cardHref}
+                    className="card card-hover rounded-xl p-5 flex flex-col gap-3 group"
+                  >
+                    {/* Header */}
+                    <div className="flex items-start justify-between gap-2 pr-7">
+                      <div className="flex-1 min-w-0">
+                        <h3 className="text-sm font-bold text-brand-navy group-hover:text-brand-blue transition-colors truncate">
+                          {job.title}
+                        </h3>
+                        <p className="text-xs text-gray-500 mt-0.5">{job.hiringCompany}</p>
+                      </div>
+                      <JobStatusBadge status={job.status} />
+                    </div>
+
+                    {/* Meta */}
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-400">
+                      <span>📍 {job.locationCity}, {job.locationCountry}</span>
+                      <span className="capitalize">🏢 {job.jobType}</span>
+                      <span>💰 {job.currency} {job.salaryMin.toLocaleString()}–{job.salaryMax.toLocaleString()}</span>
+                    </div>
+
+                    {/* Skills */}
+                    <div className="flex flex-wrap gap-1">
+                      {job.requiredSkills.slice(0, 3).map((skill) => (
+                        <span key={skill} className="px-2 py-0.5 bg-brand-blue/10 text-brand-blue text-xs rounded-full font-medium">
+                          {skill}
+                        </span>
+                      ))}
+                      {job.requiredSkills.length > 3 && (
+                        <span className="px-2 py-0.5 bg-gray-100 text-gray-400 text-xs rounded-full">
+                          +{job.requiredSkills.length - 3} more
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Stats */}
+                    <div className="flex items-center justify-between pt-1 border-t border-gray-100 mt-auto">
+                      <div className="flex items-center gap-4 text-xs">
+                        <span className="text-gray-500">
+                          <span className="font-semibold text-gray-700">{job.applicationsCount ?? 0}</span> applied
+                        </span>
+                        <span className={clsx(
+                          'font-semibold',
+                          (job.shortlistedCount ?? 0) > 0 ? 'text-brand-blue' : 'text-gray-400'
+                        )}>
+                          <span>{job.shortlistedCount ?? 0}</span> shortlisted
+                        </span>
+                      </div>
+                      {job.activatedAt && (
+                        <span className="text-xs text-gray-400">
+                          {formatDistanceToNow(new Date(job.activatedAt), { addSuffix: true })}
+                        </span>
+                      )}
+                    </div>
+                  </Link>
+                  <div className="absolute top-3 right-3">
+                    <JobCardMenu job={job} onAction={(a) => handleAction(job, a)} />
                   </div>
-                  <JobStatusBadge status={job.status} />
                 </div>
-
-                {/* Meta */}
-                <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-400">
-                  <span>📍 {job.locationCity}, {job.locationCountry}</span>
-                  <span className="capitalize">🏢 {job.jobType}</span>
-                  <span>💰 {job.currency} {job.salaryMin.toLocaleString()}–{job.salaryMax.toLocaleString()}</span>
-                </div>
-
-                {/* Skills */}
-                <div className="flex flex-wrap gap-1">
-                  {job.requiredSkills.slice(0, 3).map((skill) => (
-                    <span key={skill} className="px-2 py-0.5 bg-brand-blue/10 text-brand-blue text-xs rounded-full font-medium">
-                      {skill}
-                    </span>
-                  ))}
-                  {job.requiredSkills.length > 3 && (
-                    <span className="px-2 py-0.5 bg-gray-100 text-gray-400 text-xs rounded-full">
-                      +{job.requiredSkills.length - 3} more
-                    </span>
-                  )}
-                </div>
-
-                {/* Stats */}
-                <div className="flex items-center justify-between pt-1 border-t border-gray-100 mt-auto">
-                  <div className="flex items-center gap-4 text-xs">
-                    <span className="text-gray-500">
-                      <span className="font-semibold text-gray-700">{job.applicationsCount ?? 0}</span> applied
-                    </span>
-                    <span className={clsx(
-                      'font-semibold',
-                      (job.shortlistedCount ?? 0) > 0 ? 'text-brand-blue' : 'text-gray-400'
-                    )}>
-                      <span>{job.shortlistedCount ?? 0}</span> shortlisted
-                    </span>
-                  </div>
-                  {job.activatedAt && (
-                    <span className="text-xs text-gray-400">
-                      {formatDistanceToNow(new Date(job.activatedAt), { addSuffix: true })}
-                    </span>
-                  )}
-                </div>
-              </Link>
-            ))}
+              )
+            })}
           </div>
         )}
       </div>

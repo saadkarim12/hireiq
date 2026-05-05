@@ -1,11 +1,76 @@
 'use client'
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { toast } from 'react-hot-toast'
 import { api } from '@/api/client'
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+
+// ── SCREENING TYPES ───────────────────────────────────────────────────────────
+type FilterType = 'number' | 'text' | 'multi_select' | 'single_select' | 'boolean'
+type HardFilter = {
+  id: string
+  name: string
+  type: FilterType
+  description: string
+  required: boolean
+  numberValue?: number
+  textValue?: string
+  multiValues?: string[]
+  singleValue?: string
+  singleOptions?: string[]
+  booleanValue?: boolean
+}
+type BandAction = 'advance' | 'hold' | 'reject'
+type RecommendationBand = {
+  id: string
+  label: string
+  action: BandAction
+  minScore: number
+  maxScore: number
+  color: 'green' | 'yellow' | 'red' | 'orange'
+  icon: string
+  description: string
+}
+
+const VISA_LABELS: Record<string, string> = {
+  any: 'Open to all visas',
+  residence_visa: 'Must have residence visa',
+  own_visa: 'Own visa / transferable',
+  gcc_national: 'GCC Nationals preferred',
+  citizen_only: 'Citizens only (Emiratization/Saudization)',
+}
+
+const BAND_THEMES: Record<RecommendationBand['color'], { bg: string; border: string; fg: string }> = {
+  green:  { bg: '#F0FDF4', border: '#BBF7D0', fg: '#166534' },
+  yellow: { bg: '#FFFBEB', border: '#FDE68A', fg: '#92400E' },
+  orange: { bg: '#FFF7ED', border: '#FED7AA', fg: '#9A3412' },
+  red:    { bg: '#FFF1F2', border: '#FECDD3', fg: '#991B1B' },
+}
+
+const DEFAULT_BANDS: RecommendationBand[] = [
+  { id: 'band-advance', label: 'Score ≥ 75', action: 'advance', minScore: 75, maxScore: 100, color: 'green',  icon: '✅', description: 'Strong match for this role' },
+  { id: 'band-hold',    label: 'Score 55–74', action: 'hold',    minScore: 55, maxScore: 74,  color: 'yellow', icon: '⚠️',  description: 'Borderline — review carefully' },
+  { id: 'band-reject',  label: 'Score < 55',  action: 'reject',  minScore: 0,  maxScore: 54,  color: 'red',    icon: '❌', description: 'Weak match for this role' },
+]
 
 // ── SCHEMA ────────────────────────────────────────────────────────────────────
 const schema = z.object({
@@ -38,6 +103,29 @@ const schema = z.object({
   // Step 3
   mustHaveSkills:       z.array(z.string()),
   niceToHaveSkills:     z.array(z.string()),
+  hardFilters:          z.array(z.object({
+    id: z.string(),
+    name: z.string(),
+    type: z.enum(['number','text','multi_select','single_select','boolean']),
+    description: z.string(),
+    required: z.boolean(),
+    numberValue: z.number().optional(),
+    textValue: z.string().optional(),
+    multiValues: z.array(z.string()).optional(),
+    singleValue: z.string().optional(),
+    singleOptions: z.array(z.string()).optional(),
+    booleanValue: z.boolean().optional(),
+  })),
+  recommendationBands:  z.array(z.object({
+    id: z.string(),
+    label: z.string(),
+    action: z.enum(['advance','hold','reject']),
+    minScore: z.number().min(0).max(100),
+    maxScore: z.number().min(0).max(100),
+    color: z.enum(['green','yellow','orange','red']),
+    icon: z.string(),
+    description: z.string(),
+  })),
   // Step 4
   screeningQuestions:   z.array(z.object({
     id: z.string(),
@@ -137,17 +225,20 @@ function TagInput({ tags, onChange, placeholder, color }: {
 // ── MAIN COMPONENT ────────────────────────────────────────────────────────────
 export default function NewJobPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const draftId = searchParams?.get('draftId') || null
   const [step, setStep] = useState(1)
   const [isGeneratingJd, setIsGeneratingJd] = useState(false)
   const [isGeneratingQuestions, setIsGeneratingQuestions] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [showCustomCity, setShowCustomCity] = useState(false)
-  const [createdJobId, setCreatedJobId] = useState<string | null>(null)
+  const [createdJobId, setCreatedJobId] = useState<string | null>(draftId)
+  const [isLoadingDraft, setIsLoadingDraft] = useState(!!draftId)
   // 4.3.c — duplicate warning state
   const [duplicateWarning, setDuplicateWarning] = useState<{ existing?: { title: string; hiringCompany: string; createdAt: string } } | null>(null)
   const [allowDuplicate, setAllowDuplicate] = useState(false)
 
-  const { register, watch, setValue, getValues, formState: { errors } } = useForm<FormData>({
+  const { register, watch, setValue, getValues, reset, formState: { errors } } = useForm<FormData>({
     defaultValues: {
       locationCountry: 'AE', currency: 'AED', employmentType: 'permanent',
       jobType: 'onsite', visaRequirement: 'any', nationalityPref: 'any',
@@ -155,10 +246,103 @@ export default function NewJobPage() {
       requiredLanguages: ['English'], requiredSkills: [], preferredSkills: [],
       mustHaveSkills: [], niceToHaveSkills: [],
       jdMode: 'paste', screeningQuestions: [],
+      hardFilters: [],
+      recommendationBands: DEFAULT_BANDS,
     },
   })
 
   const vals = watch()
+
+  // ── DRAFT RESUME — load job & seed form when ?draftId=... is present ──────
+  useEffect(() => {
+    if (!draftId) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await api.get<any>(`/jobs/${draftId}`)
+        const j = res.data.data
+        if (cancelled) return
+        if (j.status !== 'draft') {
+          toast.error('Only draft jobs can be edited. This job is ' + j.status + '.')
+          router.push('/jobs')
+          return
+        }
+        reset({
+          ...getValues(),
+          title:                j.title || '',
+          hiringCompany:        j.hiringCompany || '',
+          locationCountry:      j.locationCountry || 'AE',
+          locationCity:         j.locationCity || '',
+          jobType:              j.jobType || 'onsite',
+          currency:             j.currency || 'AED',
+          salaryMin:            j.salaryMin ?? 0,
+          salaryMax:            j.salaryMax ?? 0,
+          minExperienceYears:   j.minExperienceYears ?? 0,
+          requiredLanguages:    j.requiredLanguages?.length ? j.requiredLanguages : ['English'],
+          requiredSkills:       j.requiredSkills || [],
+          preferredSkills:      j.preferredSkills || [],
+          jdText:               j.jdText || '',
+          generatedJdEn:        j.jdText || '',
+          jdMode:               'paste',
+          screeningQuestions:   Array.isArray(j.screeningQuestions) ? j.screeningQuestions : [],
+        } as any)
+        setCreatedJobId(j.id)
+        setIsLoadingDraft(false)
+        toast.success('Resumed draft — pick up where you left off')
+      } catch (err: any) {
+        toast.error(err?.response?.data?.error?.message || 'Failed to load draft')
+        router.push('/jobs')
+      }
+    })()
+    return () => { cancelled = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftId])
+
+  // ── STEP 3 — Screening criteria UI state ──────────────────────────────────
+  const [filterModalOpen, setFilterModalOpen] = useState(false)
+  const [editingFilterId, setEditingFilterId] = useState<string | null>(null)
+  const [bandsEditMode, setBandsEditMode] = useState(false)
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  )
+
+  // Seed Hard Filters from Step 1 values when entering Step 3 with empty list
+  useEffect(() => {
+    if (step !== 3) return
+    const current = getValues('hardFilters') || []
+    if (current.length > 0) return
+    const v = getValues()
+    const seeded: HardFilter[] = [
+      {
+        id: 'hf-min-experience',
+        name: 'Minimum experience',
+        type: 'number',
+        description: 'Candidates below this are rejected before scoring',
+        required: true,
+        numberValue: v.minExperienceYears ?? 0,
+      },
+      {
+        id: 'hf-required-skills',
+        name: 'Required skills',
+        type: 'multi_select',
+        description: 'Missing any of these = automatic rejection',
+        required: true,
+        multiValues: v.requiredSkills || [],
+      },
+      {
+        id: 'hf-visa',
+        name: 'Visa requirement',
+        type: 'single_select',
+        description: 'Applied to every applicant',
+        required: true,
+        singleValue: v.visaRequirement || 'any',
+        singleOptions: ['any', 'residence_visa', 'own_visa', 'gcc_national', 'citizen_only'],
+      },
+    ]
+    setValue('hardFilters', seeded, { shouldDirty: false })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step])
 
   const onCountryChange = (country: string) => {
     setValue('locationCountry', country)
@@ -210,11 +394,7 @@ export default function NewJobPage() {
 
     setIsGeneratingQuestions(true)
     try {
-      // Create job via API
-      const token = (document.querySelector('[data-token]') as any)?.dataset?.token
-      const headers: any = { 'Content-Type': 'application/json' }
-
-      const jobRes = await api.post<any>('/jobs', {
+      const payload = {
         title: v.title, hiringCompany: v.hiringCompany,
         locationCountry: v.locationCountry, locationCity: v.customCity || v.locationCity,
         employmentType: v.employmentType, jobType: v.jobType,
@@ -225,7 +405,12 @@ export default function NewJobPage() {
         mustHaveSkills: v.mustHaveSkills, niceToHaveSkills: v.niceToHaveSkills,
         jdText,
         allowDuplicate,
-      })
+      }
+
+      // Resuming an existing draft? PATCH instead of POST.
+      const jobRes = createdJobId
+        ? await api.patch<any>(`/jobs/${createdJobId}`, payload)
+        : await api.post<any>('/jobs', payload)
 
       const jobId = jobRes.data.data.id
       setCreatedJobId(jobId)
@@ -629,129 +814,218 @@ export default function NewJobPage() {
   )
 
   // ─────────────────────────────────────────────────────────────────────────
+  // STEP 3: SCREENING CRITERIA (dynamic filters + editable bands)
   // ─────────────────────────────────────────────────────────────────────────
-  // STEP 3: SCREENING CRITERIA (simplified)
-  // ─────────────────────────────────────────────────────────────────────────
-  if (step === 3) return (
-    <div className="max-w-2xl mx-auto">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold" style={{color:"#0A3D2E"}}>Post New Job</h1>
-        <p className="text-gray-500 text-sm mt-1">{vals.title} at {vals.hiringCompany}</p>
-      </div>
-      <StepIndicator step={3} total={4} />
-      <div className="bg-white border border-gray-200 rounded-2xl p-6 space-y-6">
-        <div>
-          <h2 className="text-lg font-semibold" style={{color:"#0A3D2E"}}>Screening Criteria</h2>
-          <p className="text-sm text-gray-500 mt-1">Review your auto-applied filters and set automation thresholds.</p>
-        </div>
+  if (step === 3) {
+    const filters: HardFilter[] = vals.hardFilters || []
+    const bands: RecommendationBand[] = vals.recommendationBands || DEFAULT_BANDS
 
-        <div className="border border-gray-200 rounded-xl overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2" style={{background:"#F9FAFB"}}>
-            <span className="text-sm font-semibold text-gray-700">Hard Filters — auto-applied from Step 1</span>
-            <span className="text-xs px-2 py-0.5 rounded-full font-medium ml-auto" style={{background:"#DCFCE7",color:"#166534"}}>Automatic</span>
+    const bandErrors = validateBands(bands)
+    const filtersValid = filters.length > 0
+    const stepValid = filtersValid && bandErrors.length === 0
+
+    const updateFilter = (next: HardFilter) => {
+      const list = [...filters]
+      const idx = list.findIndex(f => f.id === next.id)
+      if (idx >= 0) list[idx] = next; else list.push(next)
+      setValue('hardFilters', list, { shouldDirty: true })
+    }
+    const removeFilter = (id: string) => {
+      if (!confirm('Remove this filter?')) return
+      setValue('hardFilters', filters.filter(f => f.id !== id), { shouldDirty: true })
+    }
+    const onDragEnd = (e: DragEndEvent) => {
+      const { active, over } = e
+      if (!over || active.id === over.id) return
+      const oldIdx = filters.findIndex(f => f.id === active.id)
+      const newIdx = filters.findIndex(f => f.id === over.id)
+      if (oldIdx < 0 || newIdx < 0) return
+      setValue('hardFilters', arrayMove(filters, oldIdx, newIdx), { shouldDirty: true })
+    }
+
+    const editingFilter = editingFilterId ? filters.find(f => f.id === editingFilterId) : undefined
+
+    return (
+      <div className="max-w-2xl mx-auto">
+        <div className="mb-6">
+          <h1 className="text-2xl font-bold" style={{color:"#0A3D2E"}}>Post New Job</h1>
+          <p className="text-gray-500 text-sm mt-1">{vals.title} at {vals.hiringCompany}</p>
+        </div>
+        <StepIndicator step={3} total={4} />
+        <div className="bg-white border border-gray-200 rounded-2xl p-6 space-y-6">
+          <div>
+            <h2 className="text-lg font-semibold" style={{color:"#0A3D2E"}}>Screening Criteria</h2>
+            <p className="text-sm text-gray-500 mt-1">Manage hard filters and AI recommendation thresholds for this role.</p>
           </div>
-          <div className="p-4 space-y-3">
-            <div className="flex items-center justify-between py-2 border-b border-gray-50">
-              <div>
-                <p className="text-sm font-medium text-gray-700">Minimum experience</p>
-                <p className="text-xs text-gray-400">Candidates below this are rejected before scoring</p>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-bold" style={{color:"#0A3D2E"}}>{vals.minExperienceYears} years</span>
-                <button onClick={() => setStep(1)} className="text-xs text-blue-500 underline">Edit</button>
-              </div>
+
+          {/* HARD FILTERS — dynamic list */}
+          <div className="border border-gray-200 rounded-xl overflow-hidden">
+            <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2" style={{background:"#F9FAFB"}}>
+              <span className="text-sm font-semibold text-gray-700">Hard Filters</span>
+              <span className="text-xs px-2 py-0.5 rounded-full font-medium ml-auto" style={{background:"#DCFCE7",color:"#166534"}}>Automatic</span>
             </div>
-            <div className="py-2 border-b border-gray-50">
-              <div className="flex items-center justify-between mb-2">
-                <div>
-                  <p className="text-sm font-medium text-gray-700">Required skills</p>
-                  <p className="text-xs text-gray-400">Missing any of these = automatic rejection</p>
-                </div>
-                <button onClick={() => setStep(1)} className="text-xs text-blue-500 underline">Edit</button>
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {(vals.requiredSkills||[]).map((s: string) => (
-                  <span key={s} className="px-2.5 py-1 rounded-lg text-xs font-medium" style={{background:"#FEE2E2",color:"#991B1B"}}>✗ {s}</span>
-                ))}
-              </div>
+            <div className="p-4 space-y-2">
+              {filters.length === 0 ? (
+                <p className="text-sm text-gray-400 italic py-4 text-center">No filters yet. Add at least one to continue.</p>
+              ) : (
+                <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+                  <SortableContext items={filters.map(f => f.id)} strategy={verticalListSortingStrategy}>
+                    {filters.map(f => (
+                      <SortableFilterRow
+                        key={f.id}
+                        filter={f}
+                        onEdit={() => { setEditingFilterId(f.id); setFilterModalOpen(true) }}
+                        onDelete={() => removeFilter(f.id)}
+                      />
+                    ))}
+                  </SortableContext>
+                </DndContext>
+              )}
+              <button type="button"
+                onClick={() => { setEditingFilterId(null); setFilterModalOpen(true) }}
+                className="w-full mt-2 border-2 border-dashed border-gray-200 rounded-xl py-2.5 text-sm font-medium text-gray-500 hover:border-emerald-400 hover:text-emerald-700 transition-colors">
+                + Add Filter
+              </button>
+              {!filtersValid && (
+                <p className="text-xs text-red-500 mt-1">At least one filter is required.</p>
+              )}
             </div>
-            {(vals.preferredSkills||[]).length > 0 && (
-              <div className="py-2 border-b border-gray-50">
-                <div className="flex items-center justify-between mb-2">
-                  <div>
-                    <p className="text-sm font-medium text-gray-700">Preferred skills</p>
-                    <p className="text-xs text-gray-400">Boost score — do not reject</p>
+          </div>
+
+          {/* AI RECOMMENDATION BANDS — editable */}
+          <div>
+            <div className="flex items-center gap-2 mb-4">
+              <h3 className="text-sm font-semibold text-gray-700">AI Recommendation Bands</h3>
+              <span className="text-xs text-gray-400">how the AI flags candidates for your review</span>
+              <button type="button"
+                onClick={() => setBandsEditMode(m => !m)}
+                className="ml-auto text-xs font-medium hover:underline" style={{color:"#0A3D2E"}}>
+                {bandsEditMode ? 'Done' : 'Edit thresholds'}
+              </button>
+            </div>
+
+            <div className={`grid gap-3 ${bands.length <= 3 ? 'grid-cols-3' : 'grid-cols-2'}`}>
+              {bands.map((b, i) => {
+                const theme = BAND_THEMES[b.color]
+                if (bandsEditMode) {
+                  return (
+                    <div key={b.id} className="rounded-xl p-3 border-2" style={{background:theme.bg,borderColor:theme.border}}>
+                      <div className="flex items-center justify-between mb-2">
+                        <select
+                          value={b.action}
+                          onChange={e => {
+                            const action = e.target.value as BandAction
+                            const colorMap: Record<BandAction, RecommendationBand['color']> = { advance:'green', hold:'yellow', reject:'red' }
+                            const iconMap: Record<BandAction, string> = { advance:'✅', hold:'⚠️', reject:'❌' }
+                            const next = [...bands]
+                            next[i] = { ...b, action, color: colorMap[action], icon: iconMap[action] }
+                            setValue('recommendationBands', next, { shouldDirty: true })
+                          }}
+                          className="text-xs font-semibold bg-transparent outline-none" style={{color:theme.fg}}>
+                          <option value="advance">Advance</option>
+                          <option value="hold">Hold</option>
+                          <option value="reject">Reject</option>
+                        </select>
+                        {bands.length > 2 && (
+                          <button type="button"
+                            onClick={() => setValue('recommendationBands', bands.filter(x => x.id !== b.id), { shouldDirty: true })}
+                            className="text-xs text-gray-400 hover:text-red-500">×</button>
+                        )}
+                      </div>
+                      <div className="text-2xl text-center mb-2">{b.icon}</div>
+                      <div className="flex items-center gap-1 justify-center">
+                        <input type="number" min={0} max={100} value={b.minScore}
+                          onChange={e => {
+                            const next = [...bands]
+                            next[i] = { ...b, minScore: Number(e.target.value) }
+                            setValue('recommendationBands', next, { shouldDirty: true })
+                          }}
+                          className="w-14 text-xs px-1.5 py-1 rounded border border-gray-200 outline-none focus:border-emerald-400" />
+                        <span className="text-xs text-gray-400">–</span>
+                        <input type="number" min={0} max={100} value={b.maxScore}
+                          onChange={e => {
+                            const next = [...bands]
+                            next[i] = { ...b, maxScore: Number(e.target.value) }
+                            setValue('recommendationBands', next, { shouldDirty: true })
+                          }}
+                          className="w-14 text-xs px-1.5 py-1 rounded border border-gray-200 outline-none focus:border-emerald-400" />
+                      </div>
+                      <input
+                        value={b.description}
+                        onChange={e => {
+                          const next = [...bands]
+                          next[i] = { ...b, description: e.target.value }
+                          setValue('recommendationBands', next, { shouldDirty: true })
+                        }}
+                        className="w-full mt-2 text-xs px-1.5 py-1 rounded border border-gray-200 outline-none focus:border-emerald-400 bg-white/60" />
+                    </div>
+                  )
+                }
+                return (
+                  <div key={b.id} className="rounded-xl p-4 text-center border-2" style={{background:theme.bg,borderColor:theme.border}}>
+                    <div className="text-xs font-medium mb-2" style={{color:theme.fg}}>{formatBandLabel(b)}</div>
+                    <div className="text-2xl">{b.icon}</div>
+                    <div className="text-xs font-semibold mt-2" style={{color:theme.fg}}>AI: {b.action.charAt(0).toUpperCase() + b.action.slice(1)}</div>
+                    <div className="text-xs text-gray-500 mt-1">{b.description}</div>
                   </div>
-                  <button onClick={() => setStep(1)} className="text-xs text-blue-500 underline">Edit</button>
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {(vals.preferredSkills||[]).map((s: string) => (
-                    <span key={s} className="px-2.5 py-1 rounded-lg text-xs font-medium" style={{background:"#FEF3C7",color:"#92400E"}}>+ {s}</span>
-                  ))}
-                </div>
+                )
+              })}
+            </div>
+
+            {bandsEditMode && bands.length < 4 && (
+              <button type="button"
+                onClick={() => {
+                  const newBand: RecommendationBand = {
+                    id: `band-${Date.now()}`,
+                    label: 'New band',
+                    action: 'hold',
+                    minScore: 0,
+                    maxScore: 0,
+                    color: 'orange',
+                    icon: '🟠',
+                    description: 'Custom band',
+                  }
+                  setValue('recommendationBands', [...bands, newBand], { shouldDirty: true })
+                }}
+                className="w-full mt-3 border-2 border-dashed border-gray-200 rounded-xl py-2 text-xs font-medium text-gray-500 hover:border-emerald-400 hover:text-emerald-700 transition-colors">
+                + Add Band
+              </button>
+            )}
+
+            {bandErrors.length > 0 && (
+              <div className="mt-3 rounded-xl p-3 text-xs" style={{background:"#FEE2E2", color:"#991B1B"}}>
+                <p className="font-medium mb-1">Band ranges invalid:</p>
+                <ul className="list-disc pl-4 space-y-0.5">
+                  {bandErrors.map((err, i) => <li key={i}>{err}</li>)}
+                </ul>
               </div>
             )}
-            <div className="flex items-center justify-between py-2">
-              <div>
-                <p className="text-sm font-medium text-gray-700">Visa requirement</p>
-                <p className="text-xs text-gray-400">Applied to every applicant</p>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-gray-600">
-                  {vals.visaRequirement === "any" ? "Open to all visas" :
-                   vals.visaRequirement === "residence_visa" ? "Must have residence visa" :
-                   vals.visaRequirement === "own_visa" ? "Own visa / transferable" :
-                   vals.visaRequirement === "gcc_national" ? "GCC Nationals preferred" :
-                   "Citizens only"}
-                </span>
-                <button onClick={() => setStep(1)} className="text-xs text-blue-500 underline">Edit</button>
-              </div>
-            </div>
+          </div>
+
+          <div className="rounded-xl p-4 text-sm" style={{background:"#E8F5EE"}}>
+            <p className="font-medium mb-1" style={{color:"#0A3D2E"}}>How this works in your hiring:</p>
+            <p style={{color:"#0F6E56"}}>Hard filters reject candidates before scoring. AI recommendation bands are advisory — recruiters make all advancement decisions. You&apos;ll see the AI&apos;s band on every candidate card; you Approve, Hold, or Reject from there.</p>
           </div>
         </div>
 
-        <div>
-          <div className="flex items-center gap-2 mb-4">
-            <h3 className="text-sm font-semibold text-gray-700">AI Recommendation Bands</h3>
-            <span className="text-xs text-gray-400">how the AI flags candidates for your review</span>
-          </div>
-          <div className="grid grid-cols-3 gap-3">
-            <div className="rounded-xl p-4 text-center border-2" style={{background:"#F0FDF4",borderColor:"#BBF7D0"}}>
-              <div className="text-xs font-medium mb-2" style={{color:"#166534"}}>Score ≥ 75</div>
-              <div className="text-2xl">✅</div>
-              <div className="text-xs font-semibold mt-2" style={{color:"#166534"}}>AI: Advance</div>
-              <div className="text-xs text-gray-500 mt-1">Strong match for this role</div>
-            </div>
-            <div className="rounded-xl p-4 text-center border-2" style={{background:"#FFFBEB",borderColor:"#FDE68A"}}>
-              <div className="text-xs font-medium mb-2" style={{color:"#92400E"}}>Score 55–74</div>
-              <div className="text-2xl">⚠️</div>
-              <div className="text-xs font-semibold mt-2" style={{color:"#92400E"}}>AI: Hold</div>
-              <div className="text-xs text-gray-500 mt-1">Borderline — review carefully</div>
-            </div>
-            <div className="rounded-xl p-4 text-center border-2" style={{background:"#FFF1F2",borderColor:"#FECDD3"}}>
-              <div className="text-xs font-medium mb-2" style={{color:"#991B1B"}}>Score &lt; 55</div>
-              <div className="text-2xl">❌</div>
-              <div className="text-xs font-semibold mt-2" style={{color:"#991B1B"}}>AI: Reject</div>
-              <div className="text-xs text-gray-500 mt-1">Weak match for this role</div>
-            </div>
-          </div>
+        <div className="flex justify-between mt-5">
+          <button onClick={() => setStep(2)} className="px-6 py-2.5 rounded-xl text-sm font-medium border border-gray-200 text-gray-600 hover:bg-gray-50">← Back</button>
+          <button onClick={createJobAndGenerateQuestions} disabled={isGeneratingQuestions || !stepValid}
+            className="px-8 py-2.5 rounded-xl text-sm font-semibold text-white flex items-center gap-2 disabled:opacity-60" style={{background:"#0A3D2E"}}>
+            {isGeneratingQuestions ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/>Creating job...</> : "Next: Baseline Questions →"}
+          </button>
         </div>
 
-        <div className="rounded-xl p-4 text-sm" style={{background:"#E8F5EE"}}>
-          <p className="font-medium mb-1" style={{color:"#0A3D2E"}}>How this works in your hiring:</p>
-          <p style={{color:"#0F6E56"}}>These bands are system-wide. AI recommendations are advisory — recruiters make all advancement decisions. You&apos;ll see the AI&apos;s band on every candidate card; you Approve, Hold, or Reject from there.</p>
-        </div>
+        {filterModalOpen && (
+          <HardFilterModal
+            initial={editingFilter}
+            onSave={(f) => { updateFilter(f); setFilterModalOpen(false); setEditingFilterId(null) }}
+            onClose={() => { setFilterModalOpen(false); setEditingFilterId(null) }}
+          />
+        )}
       </div>
-
-      <div className="flex justify-between mt-5">
-        <button onClick={() => setStep(2)} className="px-6 py-2.5 rounded-xl text-sm font-medium border border-gray-200 text-gray-600 hover:bg-gray-50">← Back</button>
-        <button onClick={createJobAndGenerateQuestions} disabled={isGeneratingQuestions}
-          className="px-8 py-2.5 rounded-xl text-sm font-semibold text-white flex items-center gap-2 disabled:opacity-60" style={{background:"#0A3D2E"}}>
-          {isGeneratingQuestions ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/>Creating job...</> : "Next: Baseline Questions →"}
-        </button>
-      </div>
-    </div>
-  )
+    )
+  }
 
   // STEP 4: BASELINE QUESTIONS
   // ─────────────────────────────────────────────────────────────────────────
@@ -873,6 +1147,238 @@ export default function NewJobPage() {
           </button>
         </div>
       </div>
+    </div>
+  )
+}
+
+// ── HELPERS ───────────────────────────────────────────────────────────────────
+function formatBandLabel(b: RecommendationBand): string {
+  if (b.minScore === 0) return `Score < ${b.maxScore + 1}`
+  if (b.maxScore === 100) return `Score ≥ ${b.minScore}`
+  return `Score ${b.minScore}–${b.maxScore}`
+}
+
+function validateBands(bands: RecommendationBand[]): string[] {
+  const errs: string[] = []
+  if (bands.length < 2) errs.push('At least 2 bands required.')
+  for (const b of bands) {
+    if (b.minScore < 0 || b.minScore > 100) errs.push(`"${b.action}" min must be 0–100.`)
+    if (b.maxScore < 0 || b.maxScore > 100) errs.push(`"${b.action}" max must be 0–100.`)
+    if (b.minScore > b.maxScore) errs.push(`"${b.action}" min cannot exceed max.`)
+  }
+  if (errs.length) return errs
+  const sorted = [...bands].sort((a, b) => a.minScore - b.minScore)
+  if (sorted[0].minScore !== 0) errs.push('Bands must start at 0.')
+  if (sorted[sorted.length - 1].maxScore !== 100) errs.push('Bands must end at 100.')
+  for (let i = 1; i < sorted.length; i++) {
+    const prev = sorted[i - 1], cur = sorted[i]
+    if (cur.minScore !== prev.maxScore + 1) {
+      errs.push(`Gap or overlap between ${prev.minScore}-${prev.maxScore} and ${cur.minScore}-${cur.maxScore}.`)
+    }
+  }
+  return errs
+}
+
+function filterValueSummary(f: HardFilter): string {
+  switch (f.type) {
+    case 'number': return f.numberValue !== undefined ? `${f.numberValue}` : '—'
+    case 'text': return f.textValue || '—'
+    case 'multi_select': return (f.multiValues && f.multiValues.length) ? f.multiValues.join(', ') : '—'
+    case 'single_select': {
+      const raw = f.singleValue || '—'
+      return VISA_LABELS[raw] || raw
+    }
+    case 'boolean': return f.booleanValue ? 'Yes' : 'No'
+  }
+}
+
+// ── SORTABLE FILTER ROW ───────────────────────────────────────────────────────
+function SortableFilterRow({ filter, onEdit, onDelete }: {
+  filter: HardFilter; onEdit: () => void; onDelete: () => void
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: filter.id })
+  const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 }
+  return (
+    <div ref={setNodeRef} style={style} className="flex items-start gap-2 py-2 border-b border-gray-50 last:border-b-0">
+      <button {...attributes} {...listeners} className="cursor-grab text-gray-300 hover:text-gray-500 px-1 py-1 mt-0.5" title="Drag to reorder">⋮⋮</button>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <p className="text-sm font-medium text-gray-700">{filter.name}</p>
+          {!filter.required && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{background:'#FEF3C7', color:'#92400E'}}>Soft</span>
+          )}
+        </div>
+        <p className="text-xs text-gray-400">{filter.description}</p>
+        {filter.type === 'multi_select' ? (
+          <div className="flex flex-wrap gap-1.5 mt-1.5">
+            {(filter.multiValues || []).length === 0 ? (
+              <span className="text-xs text-gray-300 italic">No values</span>
+            ) : (filter.multiValues || []).map(v => (
+              <span key={v} className="px-2 py-0.5 rounded-md text-xs font-medium" style={{background:'#FEE2E2', color:'#991B1B'}}>✗ {v}</span>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm font-semibold mt-0.5" style={{color:'#0A3D2E'}}>{filterValueSummary(filter)}</p>
+        )}
+      </div>
+      <div className="flex items-center gap-3 mt-1">
+        <button type="button" onClick={onEdit} className="text-xs text-blue-500 underline">Edit</button>
+        <button type="button" onClick={onDelete} className="text-xs text-gray-400 hover:text-red-500">Delete</button>
+      </div>
+    </div>
+  )
+}
+
+// ── HARD FILTER MODAL ─────────────────────────────────────────────────────────
+function HardFilterModal({ initial, onSave, onClose }: {
+  initial?: HardFilter; onSave: (f: HardFilter) => void; onClose: () => void
+}) {
+  const [name, setName] = useState(initial?.name || '')
+  const [type, setType] = useState<FilterType>(initial?.type || 'text')
+  const [description, setDescription] = useState(initial?.description || 'Candidates that fail this filter are rejected before scoring')
+  const [required, setRequired] = useState(initial?.required ?? true)
+  const [numberValue, setNumberValue] = useState<number>(initial?.numberValue ?? 0)
+  const [textValue, setTextValue] = useState(initial?.textValue || '')
+  const [multiValues, setMultiValues] = useState<string[]>(initial?.multiValues || [])
+  const [singleValue, setSingleValue] = useState(initial?.singleValue || '')
+  const [singleOptionsText, setSingleOptionsText] = useState((initial?.singleOptions || []).join(', '))
+  const [booleanValue, setBooleanValue] = useState<boolean>(initial?.booleanValue ?? true)
+
+  const save = () => {
+    if (!name.trim()) { toast.error('Filter name is required'); return }
+    const id = initial?.id || `hf-${Date.now()}`
+    const base: HardFilter = { id, name: name.trim(), type, description: description.trim(), required }
+    if (type === 'number') base.numberValue = numberValue
+    if (type === 'text') base.textValue = textValue.trim()
+    if (type === 'multi_select') base.multiValues = multiValues
+    if (type === 'single_select') {
+      const opts = singleOptionsText.split(',').map(s => s.trim()).filter(Boolean)
+      if (opts.length === 0) { toast.error('Add at least one option'); return }
+      base.singleOptions = opts
+      base.singleValue = singleValue && opts.includes(singleValue) ? singleValue : opts[0]
+    }
+    if (type === 'boolean') base.booleanValue = booleanValue
+    onSave(base)
+  }
+
+  const inputCls = "w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-emerald-400 bg-white"
+  const labelCls = "block text-xs font-medium text-gray-600 mb-1"
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <h3 className="text-lg font-semibold mb-4" style={{color:'#0A3D2E'}}>{initial ? 'Edit Filter' : 'Add Filter'}</h3>
+        <div className="space-y-3">
+          <div>
+            <label className={labelCls}>Filter name</label>
+            <input value={name} onChange={e => setName(e.target.value)} className={inputCls} placeholder="e.g. Minimum experience, Location, Education level" />
+          </div>
+          <div>
+            <label className={labelCls}>Filter type</label>
+            <select value={type} onChange={e => setType(e.target.value as FilterType)} className={inputCls}>
+              <option value="number">Number</option>
+              <option value="text">Text</option>
+              <option value="multi_select">Multi-select tags</option>
+              <option value="single_select">Single-select</option>
+              <option value="boolean">Yes / No</option>
+            </select>
+          </div>
+
+          {type === 'number' && (
+            <div>
+              <label className={labelCls}>Value</label>
+              <input type="number" value={numberValue} onChange={e => setNumberValue(Number(e.target.value))} className={inputCls} />
+            </div>
+          )}
+          {type === 'text' && (
+            <div>
+              <label className={labelCls}>Value</label>
+              <input value={textValue} onChange={e => setTextValue(e.target.value)} className={inputCls} placeholder="e.g. Bachelor's degree" />
+            </div>
+          )}
+          {type === 'multi_select' && (
+            <div>
+              <label className={labelCls}>Values (press Enter or comma to add)</label>
+              <ModalTagInput tags={multiValues} onChange={setMultiValues} placeholder="e.g. Python, AWS, Docker" />
+            </div>
+          )}
+          {type === 'single_select' && (
+            <>
+              <div>
+                <label className={labelCls}>Options (comma-separated)</label>
+                <input value={singleOptionsText} onChange={e => setSingleOptionsText(e.target.value)} className={inputCls} placeholder="e.g. Bachelor's, Master's, PhD" />
+              </div>
+              <div>
+                <label className={labelCls}>Selected value</label>
+                <select value={singleValue} onChange={e => setSingleValue(e.target.value)} className={inputCls}>
+                  <option value="">— select —</option>
+                  {singleOptionsText.split(',').map(s => s.trim()).filter(Boolean).map(o => (
+                    <option key={o} value={o}>{o}</option>
+                  ))}
+                </select>
+              </div>
+            </>
+          )}
+          {type === 'boolean' && (
+            <div>
+              <label className={labelCls}>Value</label>
+              <select value={booleanValue ? 'true' : 'false'} onChange={e => setBooleanValue(e.target.value === 'true')} className={inputCls}>
+                <option value="true">Yes</option>
+                <option value="false">No</option>
+              </select>
+            </div>
+          )}
+
+          <div>
+            <label className={labelCls}>Rejection rule description</label>
+            <textarea value={description} onChange={e => setDescription(e.target.value)} rows={2}
+              className={inputCls + ' resize-none'} placeholder="e.g. Candidates below this are rejected before scoring" />
+          </div>
+
+          <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+            <input type="checkbox" checked={required} onChange={e => setRequired(e.target.checked)} style={{accentColor:'#0A3D2E'}} />
+            Required (mandatory) — uncheck to mark as soft preference
+          </label>
+        </div>
+
+        <div className="flex justify-end gap-2 mt-5">
+          <button type="button" onClick={onClose}
+            className="px-4 py-2 rounded-xl text-sm font-medium border border-gray-200 text-gray-600 hover:bg-gray-50">Cancel</button>
+          <button type="button" onClick={save}
+            className="px-5 py-2 rounded-xl text-sm font-semibold text-white" style={{background:'#0A3D2E'}}>
+            {initial ? 'Save changes' : 'Add filter'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Local TagInput for the modal (avoids reusing the main one's `color` styling defaults)
+function ModalTagInput({ tags, onChange, placeholder }: {
+  tags: string[]; onChange: (t: string[]) => void; placeholder: string
+}) {
+  const [input, setInput] = useState('')
+  const add = () => {
+    const v = input.trim()
+    if (v && !tags.includes(v)) { onChange([...tags, v]); setInput('') }
+  }
+  return (
+    <div className="border border-gray-200 rounded-xl p-2 flex flex-wrap gap-1.5 focus-within:border-emerald-400 transition-colors min-h-[40px]">
+      {tags.map(tag => (
+        <span key={tag} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium" style={{background:'#FEE2E2', color:'#991B1B'}}>
+          {tag}
+          <button type="button" onClick={() => onChange(tags.filter(t => t !== tag))} className="ml-0.5 opacity-60 hover:opacity-100 text-xs">×</button>
+        </span>
+      ))}
+      <input
+        value={input}
+        onChange={e => setInput(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); add() } }}
+        onBlur={add}
+        placeholder={tags.length === 0 ? placeholder : 'Add more...'}
+        className="flex-1 min-w-[100px] text-xs outline-none bg-transparent py-0.5 px-1"
+      />
     </div>
   )
 }

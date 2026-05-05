@@ -51,7 +51,9 @@ jobsRouter.get('/', async (req: AuthRequest, res) => {
     const jobs = await prisma.job.findMany({
       where: {
         agencyId: req.user!.agencyId,
-        ...(status && status !== 'all' ? { status: status as any } : {}),
+        ...(status && status !== 'all'
+          ? { status: status as any }
+          : { status: { not: 'archived' } }),
       },
       orderBy: { createdAt: 'desc' },
       take,
@@ -217,19 +219,93 @@ jobsRouter.post('/:id/activate', async (req: AuthRequest, res) => {
 })
 
 // ── UPDATE STATUS ──────────────────────────────────────────────────────────────
+// Accepts paused/closed/archived/active/draft. Used for archive + unarchive flows.
 jobsRouter.patch('/:id/status', async (req: AuthRequest, res) => {
   try {
     const { status } = req.body
-    if (!['paused', 'closed'].includes(status)) {
+    if (!['draft', 'active', 'paused', 'closed', 'archived'].includes(status)) {
       return res.status(400).json({ success: false, error: { code: 'INVALID_STATUS', message: 'Invalid status' } })
     }
-    const updated = await prisma.job.update({
-      where: { id: req.params.id },
-      data: { status, ...(status === 'closed' ? { closedAt: new Date() } : {}) },
+    const job = await prisma.job.findFirst({
+      where: { id: req.params.id, agencyId: req.user!.agencyId },
     })
+    if (!job) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Job not found' } })
+
+    const data: any = { status }
+    if (status === 'closed') data.closedAt = new Date()
+    if (status === 'active' && !job.activatedAt) data.activatedAt = new Date()
+
+    const updated = await prisma.job.update({ where: { id: job.id }, data })
     res.json({ success: true, data: updated })
   } catch (err) {
     res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to update status' } })
+  }
+})
+
+// ── UPDATE DRAFT JOB (resume editing) ─────────────────────────────────────────
+// Only allowed while status='draft'. Once a job is active, edits go through
+// other flows (pause/close/archive). Re-runs AI processing if jdText changes.
+jobsRouter.patch('/:id', async (req: AuthRequest, res) => {
+  try {
+    const job = await prisma.job.findFirst({
+      where: { id: req.params.id, agencyId: req.user!.agencyId },
+    })
+    if (!job) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Job not found' } })
+    if (job.status !== 'draft') {
+      return res.status(409).json({
+        success: false,
+        error: { code: 'NOT_DRAFT', message: 'Only draft jobs can be edited. Pause or close the job to make changes.' },
+      })
+    }
+
+    const editable = [
+      'title', 'hiringCompany', 'locationCountry', 'locationCity',
+      'jobType', 'salaryMin', 'salaryMax', 'currency',
+      'requiredSkills', 'preferredSkills', 'minExperienceYears',
+      'requiredLanguages', 'jdText', 'closingDate',
+    ] as const
+
+    const data: any = {}
+    for (const k of editable) {
+      if (k in req.body) data[k] = k === 'closingDate' && req.body[k] ? new Date(req.body[k]) : req.body[k]
+    }
+
+    const jdChanged = 'jdText' in req.body && req.body.jdText && req.body.jdText !== job.jdText
+
+    const updated = await prisma.job.update({ where: { id: job.id }, data })
+
+    if (jdChanged) {
+      try {
+        const aiRes = await axios.post(`${AI_ENGINE_URL}/api/v1/ai/process-jd`, {
+          jobId: updated.id,
+          jdText: updated.jdText,
+          title: updated.title,
+          hiringCompany: updated.hiringCompany,
+          locationCountry: updated.locationCountry,
+          requiredSkills: updated.requiredSkills,
+          minExperienceYears: updated.minExperienceYears,
+        }, { timeout: 30000 })
+        const { extractedCriteria, screeningQuestions } = aiRes.data.data
+        const reprocessed = await prisma.job.update({
+          where: { id: updated.id },
+          data: { extractedCriteria, screeningQuestions },
+        })
+        return res.json({ success: true, data: reprocessed })
+      } catch (aiErr) {
+        logger.warn('AI Engine unavailable on draft update — keeping prior criteria', { jobId: updated.id })
+      }
+    }
+
+    res.json({ success: true, data: updated })
+  } catch (err: any) {
+    const isValidation = err?.name === 'PrismaClientValidationError' || err?.name === 'PrismaClientKnownRequestError'
+    res.status(isValidation ? 400 : 500).json({
+      success: false,
+      error: {
+        code: isValidation ? 'VALIDATION' : 'INTERNAL_ERROR',
+        message: isValidation ? (err?.message || '').slice(0, 400) : 'Failed to update job',
+      },
+    })
   }
 })
 

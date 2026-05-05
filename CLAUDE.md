@@ -98,7 +98,7 @@ cd ~/hireiq/frontend && npm run dev
   TOKEN=$(curl -s -X POST http://localhost:3001/api/v1/auth/dev-login -H 'Content-Type: application/json' -d '{"email":"admin@saltrecruitment.ae"}' | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['accessToken'])")
   ```
 
-## Current Product State (v1.6.0)
+## Current Product State (v1.11.4)
 
 ### Working Features
 1. **Job Creation** — 4-step wizard (Role Basics → JD Builder → Screening Criteria → Baseline Questions)
@@ -112,7 +112,7 @@ cd ~/hireiq/frontend && npm run dev
    - Final Shortlist (maps: hired)
 5. **Dashboard v3** — 8 KPIs with period filter (Month/Quarter/6M/Year) + Recent Activity feed
 6. **WhatsApp Mock** — at http://localhost:3003/mock
-7. **User Flow** — Two parallel flows (CV Inbox + Talent Pool) documented in `docs/HireIQ_User_Flow_v1.1.docx`
+7. **User Flow** — Two entry paths (CV Inbox bulk upload → Applied; Talent Pool → L1 direct via TP-direct since v1.11.2) documented in `docs/HireIQ_User_Flow_v1.4.docx`
 
 ### Scoring Model (CRITICAL — Phase 6k reworked)
 Two-stage scoring aligned to kanban stages:
@@ -211,80 +211,32 @@ Plus 10 Cloud Architect pipeline candidates (Omar Farouk, Ahmed Al-Rashidi, Sara
 - `pipelineStageHistory` first entry carries `entryPath` tag: `'tp_direct'` (Talent Pool flow) or `'cv_inbox'` (bulk upload). Enables future analytics distinction.
 - Analytics: new KPI in Pipeline Funnel card — `TP → L1 direct: X / Y L1 entries (Z% skipped Applied)`. Backend `kpis.tpDirectL1{Count, Percent, Total}`.
 
-**v1.11.4** (`0df3deb`) — Recruiter-initiated re-score in TP drawer. Saad's UX call after seeing v1.11.3: auto-firing Claude on every drawer open is wrong; recruiter should opt in. Gold "Match for" card now opens with a CTA button "🔍 Re-parse & re-score CV against <Job>" + previous score reference. Click fires Claude (~10s); result is cached per (candidateId, jobId) in React Query session cache so subsequent opens show the result directly with no new Claude call. Error path includes a "Try again" link.
-
 **v1.11.3** (`c51d6da`) — Live CV re-score in TP drawer + flow simplification. Saad's screenshot of Nadia Hussain's drawer surfaced three concrete issues: stale top score (her 83 was from a CLOSED Cloud Architect job; selected "Match for" pointed at the active version of the same title where her score is 66), missing live CV parse against the selected job (we shipped the backend in v1.11.2 but didn't wire it to UI), and the secondary "Add to Pipeline (review first)" button cluttering the single-action flow.
 
 - TP drawer (job selected) now fires `/jobs/:jobId/preview-score` on open. The result populates the gold "Match for: <Job>" card with LIVE cvMatchScore, mustHaveSkills evidence chips, hardFilterPass + reason, and AI recommendation. Cached per `(candidateId, jobId)` by React Query (`staleTime: Infinity`) so re-opens within session don't re-bill Claude. Loading spinner during the ~10s Claude call. Error fallback shows the stored score with a "live re-score failed" caption.
 - Removed secondary "Add to Pipeline (review first)" button. Single CTA: `Approve to L1`.
 - `/candidates/:id/history` now includes the canonical row (dropped `id: { not: target.id }` exclusion). Reason: top of drawer no longer shows the canonical's stored fields, so they belong in history alongside other past attempts. Nadia's drawer now correctly lists BOTH her Cloud Architect attempts (83/19-Apr closed-job and 66/17-Apr active-job) in history.
 
-## QA v1.2 Review — COMPLETE (2026-04-24, for Ali)
+**v1.11.4** (`0df3deb`) — Recruiter-initiated re-score in TP drawer. Saad's UX call after seeing v1.11.3: auto-firing Claude on every drawer open is wrong; recruiter should opt in. Gold "Match for" card now opens with a CTA button "🔍 Re-parse & re-score CV against <Job>" + previous score reference. Click fires Claude (~10s); result is cached per (candidateId, jobId) in React Query session cache so subsequent opens show the result directly with no new Claude call. Error path includes a "Try again" link.
 
-Saad and I triaged every non-Pass test in `docs/HireIQ_QA_Test_Plan_v1.2.docx`. Every decision, deferral, and verification lives in `docs/QA_FIX_LOG.md` — **that's the authoritative per-test doc**. CLAUDE.md just summarises.
+## QA Status
 
-**Starting numbers**: 85 tests · 68 Pass (80%) · 10 Partial (12%) · 7 Fail (8%).
+All 85 tests in `docs/HireIQ_QA_Test_Plan_v1.3.docx` retested green at v1.11.0 with commit hashes recorded per row. Per-test decisions and deferrals live in `docs/QA_FIX_LOG.md` (authoritative). Sprint plan in `docs/SPRINT_PLAN.md`.
 
-**After verification** (three tests re-rated after live inspection):
-- 5.3 TP Job History — Fail → **Pass** (section renders; content gap is 4.8)
-- 8.6 Stage History JSON — Fail → **Pass** (`pipelineStageHistory` correctly populated)
-- 8.7 / 8.8 reasons — **Pass confirmed** with live data
+**Blocked**: 1.1.a favicon — awaiting HireIQ logo from Saad.
 
-### 27 agreed fixes — 5 sprints (Ali approved 2026-04-24 with 8 additions)
+**Phase 7 deferrals (still open)**: 3.10.b persist original PDF · 4.4.c Claude per-job re-score · 7.6.a.ii CV-match backfill for stale L1+ · 7.6.c recruiter-editable score weights · 7.7.c proactive rejection WhatsApp.
 
-**Sprint 1 — Copy + cosmetic (~2h, low risk)**:
-1.1.b sidebar Loading · 2.3.a country list · 2.4.a+b Step 2 defaults · 2.5.a threshold block → read-only legend (**Ali line added**: *"These bands are system-wide. AI recommendations are advisory..."*) · 2.6.b drop "reorder" · 4.3.b dropdown date suffix · 5.6.a Approve modal rewrite (covers 8.3) · 7.6.a.i drawer empty state. **2.6.c moved to Sprint 3 per Ali (ships with the button)**.
+## Phase 7 Backlog (unsequenced — needs Saad's ordering)
 
-**Sprint 2 — Drawer improvements (~2h)**:
-3.9.a WhatsApp number · 3.10.a always-show Download CV + blob handler · 4.8.a rename "Applied Jobs" · 8.2.a click-to-expand AI recommendation
-
-**Sprint 3 — Backend bug fixes (~2h)**:
-2.6.a "+ Add Custom Question" + 2.6.c **Phase 7 auto-translate** helper · 7.2.a/7.3.a sync `conversationState` write · 7.7.a `rejectedFromStage` schema + populate · 7.7.b two-tier rejection message · 8.5.a drag landing on cards · 8.5.b guard re-firing WhatsApp sim
-
-**Sprint 4 — Features (~3-5h)**:
-4.4.a rewrite `/talent-matches` algorithm (hard-gate, drop storedScore carryover, **Ali's Phase 8 TODO at the constant**) · 4.8.b `/candidates/:id/history` endpoint + frontend · 7.6.b Domain Knowledge in overall formula
-
-**Sprint 5 — Data cleanup + guard + demo target (~1.5h)**:
-4.3.a soft-close duplicate jobs · **4.3.c** DB uniqueness guard + wizard warn (promoted from Phase 7) · 7.6.a.iii Talent Pool dedupe by identity · **end state: exactly 4 active demo jobs** (Cloud Architect–DigyCorp · Enterprise Architect–DigyCorp · Finance Manager–Salt Recruitment · Senior HR Business Partner–Salt Recruitment)
-
-**Blocked**: 1.1.a favicon (awaiting HireIQ logo from Saad).
-
-**Retest model** (Ali's spec): Mansur runs retests after each sprint (not Saad). Browser click-through of all fixed tests + 5 adjacent-module regression spot-checks + update `HireIQ_QA_Test_Plan_v1.3.docx` with Pass/Fail + commit hash. Hotfix in same sprint if anything fails. Saad validates once after v1.11.0 ships.
-
-**v1.11.0 tag gate**: all 5 sprints shipped · full 85-test retest green · QA v1.3 doc complete (every row has Retest Result + Commit Hash) · CLAUDE.md updated · 4 active demo jobs · comprehensive tag message.
-
-### 5 items deferred to Phase 7 (was 6 — 4.3.c promoted out)
-
-3.10.b persist original PDF · 4.4.c Claude per-job re-score · 7.6.a.ii CV Match backfill for stale L1+ · 7.6.c recruiter-editable score weights · 7.7.c proactive rejection WhatsApp
-
-### 4 verified-Pass no-action
-
-5.3 · 8.6 · 8.7 · 8.8
-
-**Authoritative docs**: per-test detail in `docs/QA_FIX_LOG.md` · execution order + Ali's additions in `docs/SPRINT_PLAN.md` · retest tracking in `docs/HireIQ_QA_Test_Plan_v1.3.docx` (created as first commit of this release series).
-
-## Tomorrow's Open Items (carry-over)
-
-### Reema chatbot — Phase 7 P3 candidate
-Internal agency assistant idea mentioned in planning. Needs scoping: who is Reema for (recruiter query assistant? candidate-facing?), what capabilities, where she lives in the UI. Pushed to Phase 7 pending product brief. **Ask Saad for the spec** before any code.
-
-### QA Test Plan has Module 11 for Analytics (v1.2 shipped 2026-04-23)
-✅ Resolved — `docs/HireIQ_QA_Test_Plan_v1.2.docx` landed with Module 11 coverage (7 cases).
-
-### Phase 7 sequencing decision
-Phase 7 scope list has been accumulating without ordering. Candidates include:
-- 360dialog real WhatsApp integration (replaces mock)
-- L2 / L3 / Final interview feedback UI (schema landed in v1.8.0)
-- Offer model + Cost per Hire billing wire-up
-- Reema chatbot (see above)
-- JD generator prompt tuning (caps must-haves at 3-5, aligns with required_skills)
-- 48h WhatsApp non-response timeout + auto-reminder
-- Multi-user agencies + recruiter attribution
-
-**Action for tomorrow:** get Saad's ordering. 360dialog is the biggest unlock (enables real pilots). Interview UI unblocks the funnel past L1. JD generator fix + timeout are low-cost correctness wins. Reema + multi-user are higher-scope platform bets. No coding until sequencing is locked.
-
-### Deferred from yesterday (still valid)
-- BRD v5.5 — only if product decisions emerge. v5.4 documents current state.
+- **360dialog WhatsApp integration** — replaces mock. Biggest unlock; enables real pilots.
+- **L2 / L3 / Final interview feedback UI** — schema landed in v1.8.0; UI still pending. Unblocks funnel past L1.
+- **JD generator prompt tuning** — cap must-haves at 3-5, align with `required_skills` (see Known Issues).
+- **48h WhatsApp non-response timeout + auto-reminder** — see Known Issues.
+- **Offer model + Cost per Hire wiring** — Analytics card currently shows "Coming Soon".
+- **Reema chatbot** — internal agency assistant. Needs product brief from Saad before any code (audience, capabilities, UI placement).
+- **Multi-user agencies + recruiter attribution** — higher-scope platform bet.
+- QA-deferred items above (PDF persistence, Claude per-job re-score, CV-match backfill, editable weights, proactive rejection WA).
 
 ## Known Gotchas
 - **Docker PATH**: `export PATH="$PATH:/Applications/Docker.app/Contents/Resources/bin"` before any `docker` command
@@ -325,8 +277,8 @@ refactor: <code changes with no behavior change>
 6. Ask Saad: "What's the priority for today?"
 
 ## Files to Read for Deep Context
-- `docs/HireIQ_BRD_v5.3.docx` — Full business requirements
-- `docs/HireIQ_User_Flow_v1.1.docx` — Step-by-step flow
+- `docs/HireIQ_BRD_v5.6.docx` — Full business requirements (current)
+- `docs/HireIQ_User_Flow_v1.4.docx` — Step-by-step flow (current)
 - `backend/src/core-api/routes/bulk-upload.ts` — CV parsing + talent matching (complex)
 - `frontend/src/app/(dashboard)/talent-pool/page.tsx` — Reference for drawer design
 - `frontend/src/app/(dashboard)/cv-inbox/page.tsx` — Reference for upload flow

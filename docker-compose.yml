@@ -1,0 +1,23 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: hireiq-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: hireiq
+      POSTGRES_USER: hireiq
+      POSTGRES_PASSWORD: hireiq_dev_2026
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hireiq -d hireiq"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  postgres_data:
+    external: true
+    name: fcf03d2028760c593abe174ece093e3a1e66b151e46f731d1e4142932f1cf345
