@@ -1,8 +1,11 @@
 import { Router, Request, Response } from 'express'
-import { execSync } from 'child_process'
+import { execFile } from 'child_process'
+import { promisify } from 'util'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
+
+const execFileAsync = promisify(execFile)
 
 export const extractTextRoute = Router()
 
@@ -15,27 +18,28 @@ extractTextRoute.post('/extract-text', async (req: Request, res: Response) => {
     let text = ''
 
     if (mimeType === 'application/pdf') {
-      // Write to temp file and extract with pdftotext if available, else use strings command
-      const tmpFile = path.join(os.tmpdir(), `cv_${Date.now()}.pdf`)
-      fs.writeFileSync(tmpFile, buffer)
-      
+      // Use a unique tmp filename — under parallel uploads, Date.now() can collide
+      // and cause two requests to write/read/unlink the same file mid-flight.
+      const tmpFile = path.join(os.tmpdir(), `cv_${Date.now()}_${Math.random().toString(36).slice(2, 10)}.pdf`)
+      await fs.promises.writeFile(tmpFile, buffer)
+
       try {
-        // Try pdftotext first (most accurate)
-        text = execSync(`pdftotext "${tmpFile}" -`, { timeout: 15000 }).toString()
+        // Async exec — execSync blocked the event loop and serialized parallel uploads.
+        const { stdout } = await execFileAsync('pdftotext', [tmpFile, '-'], { timeout: 15000, maxBuffer: 10 * 1024 * 1024 })
+        text = stdout
       } catch {
         try {
-          // Fallback: strings command to extract readable text from PDF
-          text = execSync(`strings "${tmpFile}"`, { timeout: 10000 }).toString()
+          const { stdout } = await execFileAsync('strings', [tmpFile], { timeout: 10000, maxBuffer: 10 * 1024 * 1024 })
+          text = stdout
         } catch {
-          // Last resort: decode buffer and clean
           text = buffer.toString('latin1')
             .replace(/[^\x20-\x7E\n\r\t]/g, ' ')
             .replace(/\s{3,}/g, ' ')
         }
       }
-      
-      try { fs.unlinkSync(tmpFile) } catch {}
-      
+
+      try { await fs.promises.unlink(tmpFile) } catch {}
+
     } else {
       // Word documents: decode buffer directly
       text = buffer.toString('utf-8', 0, 50000)

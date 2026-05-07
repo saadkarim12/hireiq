@@ -7,6 +7,41 @@ import { recommendForL1, recommendForL2 } from '../../shared/recommendations'
 
 export const scoreCandidateRoute = Router()
 
+// ── Hard filter rendering ────────────────────────────────────────────────────
+// The wizard persists recruiter-defined hard filters under
+// extractedCriteria.userScreeningCriteria (Step 1 mandatory toggles + custom
+// Step 3 filters). We render them into the Claude prompt so the model
+// evaluates each one as a gating criterion. If ANY mandatory filter fails,
+// hardFilterPass=false with hardFilterFailReason naming the failed filter.
+function renderHardFilters(criteria: any, fallback: { minExperienceYears: number; requiredSkills: string[] }): string {
+  const user = criteria?.userScreeningCriteria
+  const filters = Array.isArray(user?.hardFilters) ? user.hardFilters : []
+  if (filters.length === 0) {
+    // No explicit filters — fall back to the legacy implicit gates so we don't
+    // silently lose hard-filter behavior on jobs created before this feature.
+    return [
+      `- Minimum experience: ${fallback.minExperienceYears} years (REJECT if below)`,
+      `- Required skills: ${fallback.requiredSkills.join(', ')} (REJECT if any missing)`,
+    ].join('\n')
+  }
+  return filters.map((f: any) => {
+    switch (f.type) {
+      case 'number':
+        return `- ${f.name}: ${f.numberValue} — REJECT candidates with a value below this`
+      case 'text':
+        return `- ${f.name}: must contain "${f.textValue}" — REJECT if missing`
+      case 'multi_select':
+        return `- ${f.name}: must have ALL of [${(f.multiValues || []).join(', ')}] — REJECT if any missing`
+      case 'single_select':
+        return `- ${f.name}: must be "${f.singleValue}" — REJECT if mismatch (note: "any" means no gate)`
+      case 'boolean':
+        return `- ${f.name}: must be ${f.booleanValue ? 'YES' : 'NO'} — REJECT if not`
+      default:
+        return `- ${f.name}: ${f.description || 'mandatory'}`
+    }
+  }).join('\n')
+}
+
 // ── Full scoring tool (post-WhatsApp: cv + commitment + salary + composite) ─
 const SCORE_TOOLS_V2: Anthropic.Tool[] = [
   {
@@ -130,22 +165,35 @@ scoreCandidateRoute.post('/score-cv', async (req, res) => {
 
     const criteria = job.extractedCriteria as any
 
+    const hardFilterBlock = renderHardFilters(criteria, {
+      minExperienceYears: job.minExperienceYears,
+      requiredSkills: job.requiredSkills,
+    })
+
     const scores = await callClaudeWithTool<any>(
       `You are a CV-only screening engine for UAE and KSA recruitment.
 Score ONLY on Skills (60%) + Experience (40%) — do NOT score commitment or salary at this stage; that happens later via WhatsApp.
 Extract EXACT evidence from CV text for each must-have skill.
 For mustHaveSkills: quote the exact CV phrase where found, or set found=false with empty evidence.
 parseConfidence: 0=garbled/table/image PDF, 100=clean plain text.
-Flag AI-generated content: perfect JD keyword match, skills with no timeline support.`,
+Flag AI-generated content: perfect JD keyword match, skills with no timeline support.
+
+HARD FILTERS — evaluate FIRST. If the candidate fails ANY hard filter below, set hardFilterPass=false and put the failed filter name + reason in hardFilterFailReason (max 200 chars). If all pass, set hardFilterPass=true.`,
       `Score this candidate CV (CV-only, pre-screening):
 JOB: ${job.title} at ${job.hiringCompany} (${job.locationCountry})
+Salary band: ${job.currency} ${job.salaryMin.toLocaleString()}-${job.salaryMax.toLocaleString()}/month
 Min experience: ${job.minExperienceYears} years
 Required skills: ${job.requiredSkills.join(', ')}
 Must-have: ${criteria?.mustHave?.join(', ')||'Not specified'}
 
+HARD FILTERS (each is a REJECT gate — must all pass):
+${hardFilterBlock}
+
 CANDIDATE:
 Role: ${candidate.currentRole||'Unknown'}
 Experience: ${candidate.yearsExperience||'Unknown'} years
+Salary expectation: ${candidate.salaryExpectation||'Not stated'}
+Notice period: ${candidate.noticePeriodDays != null ? candidate.noticePeriodDays + ' days' : 'Unknown'}
 Visa: ${candidate.visaStatus||'Unknown'}
 CV skills: ${((candidate.cvStructured as any)?.skills||[]).join(', ')}
 CV data: ${JSON.stringify(candidate.cvStructured||{}).slice(0,800)}`,
@@ -204,22 +252,35 @@ scoreCandidateRoute.post('/preview-score-cv', async (req, res) => {
 
     const criteria = job.extractedCriteria as any
 
+    const hardFilterBlock = renderHardFilters(criteria, {
+      minExperienceYears: job.minExperienceYears,
+      requiredSkills: job.requiredSkills,
+    })
+
     const scores = await callClaudeWithTool<any>(
       `You are a CV-only screening engine for UAE and KSA recruitment.
 Score ONLY on Skills (60%) + Experience (40%) — do NOT score commitment or salary at this stage; that happens later via WhatsApp.
 Extract EXACT evidence from CV text for each must-have skill.
 For mustHaveSkills: quote the exact CV phrase where found, or set found=false with empty evidence.
 parseConfidence: 0=garbled/table/image PDF, 100=clean plain text.
-Flag AI-generated content: perfect JD keyword match, skills with no timeline support.`,
+Flag AI-generated content: perfect JD keyword match, skills with no timeline support.
+
+HARD FILTERS — evaluate FIRST. If the candidate fails ANY hard filter below, set hardFilterPass=false and put the failed filter name + reason in hardFilterFailReason (max 200 chars). If all pass, set hardFilterPass=true.`,
       `Score this candidate CV (CV-only, pre-screening):
 JOB: ${job.title} at ${job.hiringCompany} (${job.locationCountry})
+Salary band: ${job.currency} ${job.salaryMin.toLocaleString()}-${job.salaryMax.toLocaleString()}/month
 Min experience: ${job.minExperienceYears} years
 Required skills: ${job.requiredSkills.join(', ')}
 Must-have: ${criteria?.mustHave?.join(', ')||'Not specified'}
 
+HARD FILTERS (each is a REJECT gate — must all pass):
+${hardFilterBlock}
+
 CANDIDATE:
 Role: ${candidate.currentRole||'Unknown'}
 Experience: ${candidate.yearsExperience||'Unknown'} years
+Salary expectation: ${candidate.salaryExpectation||'Not stated'}
+Notice period: ${candidate.noticePeriodDays != null ? candidate.noticePeriodDays + ' days' : 'Unknown'}
 Visa: ${candidate.visaStatus||'Unknown'}
 CV skills: ${((candidate.cvStructured as any)?.skills||[]).join(', ')}
 CV data: ${JSON.stringify(candidate.cvStructured||{}).slice(0,800)}`,
@@ -260,19 +321,29 @@ scoreCandidateRoute.post('/score', async (req, res) => {
       .filter(m => m.direction === 'inbound' && m.questionIndex !== null)
       .map(m => `Q${(m.questionIndex||0)+1}: ${m.content}`).join('\n')
 
+    const hardFilterBlock = renderHardFilters(criteria, {
+      minExperienceYears: job.minExperienceYears,
+      requiredSkills: job.requiredSkills,
+    })
+
     const scores = await callClaudeWithTool<any>(
       `You are a recruitment scoring engine for UAE and KSA.
 Score objectively. Extract EXACT evidence from CV text for each criterion.
 For mustHaveSkills: quote the exact CV phrase where found, or leave evidence empty.
 parseConfidence: 0=garbled/table/image PDF, 100=clean plain text.
 Flag AI-generated content: perfect JD keyword match, skills with no timeline support, generic achievement language.
-Composite = (cvMatchScore*0.40) + (commitmentScore*0.40) + (salaryFitScore*0.20)`,
+Composite = (cvMatchScore*0.40) + (commitmentScore*0.40) + (salaryFitScore*0.20)
+
+HARD FILTERS — evaluate FIRST. If the candidate fails ANY hard filter below, set hardFilterPass=false and put the failed filter name + reason in hardFilterFailReason (max 200 chars). If all pass, set hardFilterPass=true.`,
       `Score this candidate:
 JOB: ${job.title} at ${job.hiringCompany} (${job.locationCountry})
 Salary: ${job.currency} ${job.salaryMin.toLocaleString()}-${job.salaryMax.toLocaleString()}/month
 Min experience: ${job.minExperienceYears} years
 Required skills: ${job.requiredSkills.join(', ')}
 Must-have: ${criteria?.mustHave?.join(', ')||'Not specified'}
+
+HARD FILTERS (each is a REJECT gate — must all pass):
+${hardFilterBlock}
 
 CANDIDATE:
 Role: ${candidate.currentRole||'Unknown'}

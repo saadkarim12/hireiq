@@ -12,6 +12,7 @@ import { logger } from '../shared/logger'
 // Routes
 import { authRouter }       from './routes/auth'
 import { jobsRouter }       from './routes/jobs'
+import { publicApplyRouter } from './routes/public-apply'
 import { bulkUploadRouter }    from './routes/bulk-upload'
 import { candidatesRouter } from './routes/candidates'
 import { analyticsRouter }  from './routes/analytics'
@@ -53,6 +54,8 @@ app.use('/api/v1/', rateLimit({
 // ── Routes ────────────────────────────────────────────────────────────────────
 app.use('/health',        healthRouter)
 app.use('/api/v1/auth',       authRouter)
+// Public, unauthenticated apply endpoints — MUST mount before any auth middleware.
+app.use('/api/v1/public',     publicApplyRouter)
 app.use('/api/v1/jobs',       jobsRouter)
 app.use('/api/v1/candidates', candidatesRouter)
 app.use('/api/v1/analytics',  analyticsRouter)

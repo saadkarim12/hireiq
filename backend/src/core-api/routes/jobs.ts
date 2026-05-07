@@ -11,10 +11,13 @@ jobsRouter.use(requireAuth)
 
 const AI_ENGINE_URL = `http://localhost:${process.env.AI_ENGINE_PORT || 3002}`
 
-// Helper — generate unique slug
+// Helper — generate unique slug. 16 hex chars of crypto-random entropy makes
+// brute-force enumeration of public apply URLs impractical (combined with the
+// per-IP rate limit on the public router).
 function generateSlug(title: string, company: string): string {
   const base = `${title}-${company}`.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 60)
-  return `${base}-${Math.random().toString(36).slice(2, 6)}`
+  const suffix = require('crypto').randomBytes(8).toString('hex')
+  return `${base}-${suffix}`
 }
 
 function generateShortcode(): string {
@@ -102,7 +105,13 @@ jobsRouter.post('/', async (req: AuthRequest, res) => {
   try {
     const { title, hiringCompany, locationCountry, locationCity, jobType, salaryMin, salaryMax, currency,
       requiredSkills, preferredSkills, minExperienceYears, requiredLanguages, jdText, closingDate,
-      allowDuplicate } = req.body
+      allowDuplicate,
+      // Recruiter-explicit screening criteria from Step 1 + Step 3 of the
+      // wizard. These become hard gates passed to the AI on every CV scoring
+      // call. Persisted under extractedCriteria.userScreeningCriteria.
+      visaRequirement, nationalityPref, joinImmediately,
+      mandatoryFlags, hardFilters, customHardFilters,
+    } = req.body
 
     // 4.3.c — duplicate guard. Prevent accidental creation of another active
     // job with the same (agencyId, title, hiringCompany). Recruiter can force
@@ -149,6 +158,17 @@ jobsRouter.post('/', async (req: AuthRequest, res) => {
       },
     })
 
+    // Recruiter-explicit screening criteria. Stored alongside the AI's
+    // extractedCriteria so score-cv can read both.
+    const userScreeningCriteria = {
+      visaRequirement: visaRequirement || 'any',
+      nationalityPref: nationalityPref || 'any',
+      joinImmediately: joinImmediately || 'flexible',
+      mandatoryFlags: mandatoryFlags || {},
+      hardFilters: Array.isArray(hardFilters) ? hardFilters : [],
+      customHardFilters: Array.isArray(customHardFilters) ? customHardFilters : [],
+    }
+
     // Call AI Engine to extract criteria and generate questions
     try {
       const aiRes = await axios.post(`${AI_ENGINE_URL}/api/v1/ai/process-jd`, {
@@ -162,16 +182,23 @@ jobsRouter.post('/', async (req: AuthRequest, res) => {
       }, { timeout: 30000 })
 
       const { extractedCriteria, screeningQuestions } = aiRes.data.data
+      const merged = { ...(extractedCriteria || {}), userScreeningCriteria }
 
       await prisma.job.update({
         where: { id: job.id },
-        data: { extractedCriteria, screeningQuestions },
+        data: { extractedCriteria: merged, screeningQuestions },
       })
 
-      res.status(201).json({ success: true, data: { ...job, extractedCriteria, screeningQuestions, applyUrl: `http://localhost:3000/apply/${applyUrlSlug}` } })
+      res.status(201).json({ success: true, data: { ...job, extractedCriteria: merged, screeningQuestions, applyUrl: `http://localhost:3000/apply/${applyUrlSlug}` } })
     } catch (aiErr) {
       logger.warn('AI Engine unavailable — job created without AI criteria', { jobId: job.id })
-      res.status(201).json({ success: true, data: { ...job, extractedCriteria: null, screeningQuestions: [] } })
+      // Still persist the user's hard filters even if Claude is down — they're
+      // recruiter-authored, not AI-derived, so they shouldn't depend on it.
+      await prisma.job.update({
+        where: { id: job.id },
+        data: { extractedCriteria: { userScreeningCriteria } as any },
+      })
+      res.status(201).json({ success: true, data: { ...job, extractedCriteria: { userScreeningCriteria }, screeningQuestions: [] } })
     }
   } catch (err: any) {
     const detail = err?.message || 'Unknown error'
@@ -270,11 +297,34 @@ jobsRouter.patch('/:id', async (req: AuthRequest, res) => {
       if (k in req.body) data[k] = k === 'closingDate' && req.body[k] ? new Date(req.body[k]) : req.body[k]
     }
 
+    // Recruiter-explicit screening criteria — only overwrite if the wizard
+    // sent them in this request (same payload shape as POST). Persisted under
+    // extractedCriteria.userScreeningCriteria so score-cv can read them.
+    const hasUserCriteria = (
+      'visaRequirement' in req.body || 'nationalityPref' in req.body ||
+      'joinImmediately' in req.body || 'mandatoryFlags' in req.body ||
+      'hardFilters' in req.body || 'customHardFilters' in req.body
+    )
+    const incomingUserCriteria = hasUserCriteria ? {
+      visaRequirement: req.body.visaRequirement || 'any',
+      nationalityPref: req.body.nationalityPref || 'any',
+      joinImmediately: req.body.joinImmediately || 'flexible',
+      mandatoryFlags:  req.body.mandatoryFlags || {},
+      hardFilters:     Array.isArray(req.body.hardFilters) ? req.body.hardFilters : [],
+      customHardFilters: Array.isArray(req.body.customHardFilters) ? req.body.customHardFilters : [],
+    } : null
+
     const jdChanged = 'jdText' in req.body && req.body.jdText && req.body.jdText !== job.jdText
+    // Regenerate AI output if the JD changed OR the draft is missing questions
+    // (e.g. first POST's AI call failed, or the draft pre-dated questions). Without
+    // this, editing such a draft would silently skip generation forever.
+    const priorQuestions = Array.isArray((job as any).screeningQuestions) ? (job as any).screeningQuestions : []
+    const questionsMissing = priorQuestions.length === 0
+    const shouldRunAi = jdChanged || questionsMissing
 
     const updated = await prisma.job.update({ where: { id: job.id }, data })
 
-    if (jdChanged) {
+    if (shouldRunAi) {
       try {
         const aiRes = await axios.post(`${AI_ENGINE_URL}/api/v1/ai/process-jd`, {
           jobId: updated.id,
@@ -286,14 +336,28 @@ jobsRouter.patch('/:id', async (req: AuthRequest, res) => {
           minExperienceYears: updated.minExperienceYears,
         }, { timeout: 30000 })
         const { extractedCriteria, screeningQuestions } = aiRes.data.data
+        const prior = (updated.extractedCriteria as any) || {}
+        const userScreeningCriteria = incomingUserCriteria || prior.userScreeningCriteria || null
+        const merged = { ...(extractedCriteria || {}), ...(userScreeningCriteria ? { userScreeningCriteria } : {}) }
         const reprocessed = await prisma.job.update({
           where: { id: updated.id },
-          data: { extractedCriteria, screeningQuestions },
+          data: { extractedCriteria: merged, screeningQuestions },
         })
         return res.json({ success: true, data: reprocessed })
       } catch (aiErr) {
         logger.warn('AI Engine unavailable on draft update — keeping prior criteria', { jobId: updated.id })
       }
+    }
+
+    // No JD change but user criteria did change — merge into existing JSON.
+    if (incomingUserCriteria) {
+      const prior = (updated.extractedCriteria as any) || {}
+      const merged = { ...prior, userScreeningCriteria: incomingUserCriteria }
+      const repatched = await prisma.job.update({
+        where: { id: updated.id },
+        data: { extractedCriteria: merged },
+      })
+      return res.json({ success: true, data: repatched })
     }
 
     res.json({ success: true, data: updated })

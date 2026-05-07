@@ -32,8 +32,22 @@ bulkUploadRouter.post('/bulk-upload', upload.array('cvFiles', 50), async (req: A
 
   res.json({ success: true, data: { queued: files.length, message: `Processing ${files.length} CVs. Check Talent Pool shortly.` } })
 
-  let processed = 0, failed = 0, duplicates = 0
-  for (const file of files) {
+  // Look up the target job ONCE up-front instead of per-file. Same answer every
+  // iteration \u2014 was a redundant DB round-trip \u00D7 N files in the old loop.
+  const agencyId = req.user!.agencyId
+  const userId = req.user!.id
+  const jobRecord = jobId
+    ? await prisma.job.findUnique({ where: { id: jobId }, select: { id: true, title: true, hiringCompany: true } })
+    : await prisma.job.findFirst({ where: { agencyId }, orderBy: { createdAt: 'desc' }, select: { id: true, title: true, hiringCompany: true } })
+  if (!jobRecord?.id) {
+    logger.warn('Bulk upload: no target job available \u2014 aborting batch')
+    return
+  }
+  const defaultJob = jobRecord.id
+
+  const crypto = require('crypto')
+
+  const processOne = async (file: Express.Multer.File): Promise<'processed' | 'failed' | 'duplicate'> => {
     try {
       const base64 = file.buffer.toString('base64')
       const extractRes = await axios.post(`${AI_URL}/api/v1/ai/extract-text`,
@@ -41,35 +55,44 @@ bulkUploadRouter.post('/bulk-upload', upload.array('cvFiles', 50), async (req: A
         { timeout: 30000 }
       ).catch(() => null)
       const cvText = extractRes?.data?.data?.text || file.buffer.toString('utf-8', 0, 5000).replace(/[^\x20-\x7E\n\r\t\u0600-\u06FF]/g, ' ')
-      if (!cvText || cvText.length < 50) { failed++; continue }
 
-      const parseRes = await axios.post(`${AI_URL}/api/v1/ai/parse-cv`,
-        { candidateId: null, cvText, language: (cvText.match(/[\u0600-\u06FF]/g)||[]).length > 50 ? 'ar' : 'en' },
-        { timeout: 30000 }
-      ).catch(() => null)
-      const cvStructured = parseRes?.data?.data
-      if (!cvStructured?.fullName) { failed++; continue }
-
-      if (cvStructured.email) {
-        const exists = await prisma.candidate.findFirst({ where: { agencyId: req.user!.agencyId, email: cvStructured.email } })
-        if (exists) { duplicates++; continue }
+      // Try to parse, but don't bail on failure \u2014 fall through to creating a
+      // visible row tagged parseFailed=true so the recruiter sees the upload
+      // landed and can manually review (image-only PDFs, missing pdftotext, etc).
+      let cvStructured: any = null
+      let parseFailed = false
+      if (cvText && cvText.length >= 50) {
+        const parseRes = await axios.post(`${AI_URL}/api/v1/ai/parse-cv`,
+          { candidateId: null, cvText, language: (cvText.match(/[\u0600-\u06FF]/g)||[]).length > 50 ? 'ar' : 'en' },
+          { timeout: 30000 }
+        ).catch(() => null)
+        const parsed = parseRes?.data?.data
+        if (parsed?.fullName) cvStructured = parsed
+        else parseFailed = true
+      } else {
+        parseFailed = true
       }
 
-      const crypto = require('crypto')
-      const hash = crypto.createHash('sha256').update(cvStructured.email || cvStructured.phone || file.originalname + Date.now()).digest('hex')
+      // Dedup only when we got an email out of the parse \u2014 failed parses can't
+      // dedup, and re-creating the row each upload is the safer default than
+      // silently dropping it.
+      if (!parseFailed && cvStructured?.email) {
+        const exists = await prisma.candidate.findFirst({ where: { agencyId, email: cvStructured.email } })
+        if (exists) return 'duplicate'
+      }
 
-      const jobRecord = jobId 
-        ? await prisma.job.findUnique({ where: { id: jobId }, select: { id: true, title: true, hiringCompany: true } })
-        : await prisma.job.findFirst({ where: { agencyId: req.user!.agencyId }, orderBy: { createdAt: 'desc' }, select: { id: true, title: true, hiringCompany: true } })
-      const defaultJob = jobRecord?.id
-      if (!defaultJob) { failed++; continue }
+      const displayName = cvStructured?.fullName
+        || `[Parse Failed] ${file.originalname.replace(/\.[^.]+$/, '').slice(0, 80)}`
+
+      const hash = crypto.createHash('sha256').update(cvStructured?.email || cvStructured?.phone || file.originalname + Date.now()).digest('hex')
 
       const candidate = await prisma.candidate.create({ data: {
-        agencyId: req.user!.agencyId, jobId: defaultJob,
-        waNumberHash: hash, waNumberEncrypted: cvStructured.phone ? Buffer.from(cvStructured.phone).toString('base64') : 'bulk_upload',
-        fullName: cvStructured.fullName, email: cvStructured.email || null,
-        currentRole: cvStructured.currentRole || null, yearsExperience: cvStructured.yearsExperienceTotal || null,
-        cvStructured: JSON.parse(JSON.stringify(cvStructured).slice(0, 65000)) as any, cvType: 'full_cv',
+        agencyId, jobId: defaultJob,
+        waNumberHash: hash, waNumberEncrypted: cvStructured?.phone ? Buffer.from(cvStructured.phone).toString('base64') : 'bulk_upload',
+        fullName: displayName, email: cvStructured?.email || null,
+        currentRole: cvStructured?.currentRole || null, yearsExperience: cvStructured?.yearsExperienceTotal || null,
+        cvStructured: cvStructured ? JSON.parse(JSON.stringify(cvStructured).slice(0, 65000)) as any : undefined,
+        cvType: 'full_cv',
         consentGiven: true, consentTimestamp: new Date(),
         sourceChannel: sourceChannel || 'bulk_upload',
         pipelineStage: 'applied', conversationState: 'completed',
@@ -77,25 +100,43 @@ bulkUploadRouter.post('/bulk-upload', upload.array('cvFiles', 50), async (req: A
           from: null,
           to: 'applied',
           timestamp: new Date().toISOString(),
-          userId: req.user!.id,
+          userId,
           entryPath: 'cv_inbox',
         }])),
         dataTags: JSON.parse(JSON.stringify({
           bulkUploaded: true, sourceChannel: sourceChannel || 'bulk_upload',
-            jobTitle: jobRecord?.title || null, jobCompany: jobRecord?.hiringCompany || null,
-          parseConfidence: cvStructured.parseConfidence || 70,
-          seniorityLevel: (cvStructured.yearsExperienceTotal || 0) >= 8 ? 'Senior' : (cvStructured.yearsExperienceTotal || 0) >= 4 ? 'Mid-Level' : 'Junior',
+          jobTitle: jobRecord.title || null, jobCompany: jobRecord.hiringCompany || null,
+          parseConfidence: cvStructured?.parseConfidence || 0,
+          parseFailed,
+          originalFilename: file.originalname,
+          seniorityLevel: (cvStructured?.yearsExperienceTotal || 0) >= 8 ? 'Senior' : (cvStructured?.yearsExperienceTotal || 0) >= 4 ? 'Mid-Level' : 'Junior',
         })),
         deletionScheduledAt: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000),
       }})
 
-      if (jobId) {
+      // Only fire scoring on a real parse \u2014 there's nothing useful to score
+      // when cvStructured is null.
+      if (jobId && !parseFailed) {
         axios.post(`${AI_URL}/api/v1/ai/score`, { candidateId: candidate.id, jobId }, { timeout: 60000 }).catch(() => {})
       }
-      processed++
+      return parseFailed ? 'failed' : 'processed'
     } catch (err: any) {
       logger.error(`Bulk upload error: ${file.originalname}`, { err: err.message })
-      failed++
+      return 'failed'
+    }
+  }
+
+  // Process in parallel with a concurrency cap. Anthropic rate limits + Postgres
+  // connection pool make unbounded parallelism unsafe at 50 files.
+  const CONCURRENCY = 5
+  let processed = 0, failed = 0, duplicates = 0
+  for (let i = 0; i < files.length; i += CONCURRENCY) {
+    const batch = files.slice(i, i + CONCURRENCY)
+    const results = await Promise.all(batch.map(processOne))
+    for (const r of results) {
+      if (r === 'processed') processed++
+      else if (r === 'duplicate') duplicates++
+      else failed++
     }
   }
   logger.info(`Bulk upload done: processed=${processed} failed=${failed} duplicates=${duplicates}`)

@@ -59,6 +59,90 @@ const VISA_LABELS: Record<string, string> = {
   citizen_only: 'Citizens only (Emiratization/Saudization)',
 }
 
+const NATIONALITY_LABELS: Record<string, string> = {
+  any: 'Any nationality',
+  arab_national: 'Arab nationals preferred',
+  gcc_national: 'GCC nationals preferred',
+  local_only: 'Local nationals only',
+}
+
+// Step-1-derived hard filters carry this id prefix so Step 3 can branch
+// edit/delete behavior between "redirect to Step 1" and the existing custom
+// filter modal. Keep these ids stable — `mandatoryFlags` keys are derived from
+// them in the delete handler.
+const STEP1_FILTER_PREFIX = 'hf-step1-'
+const STEP1_FILTER_IDS = {
+  minExperience:   `${STEP1_FILTER_PREFIX}min-experience`,
+  minSalary:       `${STEP1_FILTER_PREFIX}min-salary`,
+  visaRequirement: `${STEP1_FILTER_PREFIX}visa`,
+  nationalityPref: `${STEP1_FILTER_PREFIX}nationality`,
+  requiredSkills:  `${STEP1_FILTER_PREFIX}required-skills`,
+  joinImmediately: `${STEP1_FILTER_PREFIX}join-immediately`,
+} as const
+
+type MandatoryFlagKey = 'minExperience' | 'minSalary' | 'visaRequirement' | 'nationalityPref' | 'requiredSkills'
+
+// Build the read-only Step-1-derived hard filters from current form values.
+// Skipped entirely when the corresponding mandatory toggle is off (or, for
+// joinImmediately, when the role is "flexible" — flexible means no hard gate).
+function deriveStep1Filters(v: any): HardFilter[] {
+  const flags = v.mandatoryFlags || {}
+  const out: HardFilter[] = []
+  if (flags.minExperience) out.push({
+    id: STEP1_FILTER_IDS.minExperience,
+    name: 'Minimum experience (years)',
+    type: 'number',
+    description: 'From Role Basics. Candidates below this are rejected before scoring.',
+    required: true,
+    numberValue: v.minExperienceYears ?? 0,
+  })
+  if (flags.requiredSkills) out.push({
+    id: STEP1_FILTER_IDS.requiredSkills,
+    name: 'Required skills',
+    type: 'multi_select',
+    description: 'From Role Basics. Missing any of these = automatic rejection.',
+    required: true,
+    multiValues: v.requiredSkills || [],
+  })
+  if (flags.visaRequirement) out.push({
+    id: STEP1_FILTER_IDS.visaRequirement,
+    name: 'Visa requirement',
+    type: 'single_select',
+    description: 'From Role Basics. Applied to every applicant.',
+    required: true,
+    singleValue: v.visaRequirement || 'any',
+    singleOptions: ['any', 'residence_visa', 'own_visa', 'gcc_national', 'citizen_only'],
+  })
+  if (flags.nationalityPref) out.push({
+    id: STEP1_FILTER_IDS.nationalityPref,
+    name: 'Nationality preference',
+    type: 'single_select',
+    description: 'From Role Basics. Candidates outside this preference are rejected.',
+    required: true,
+    singleValue: v.nationalityPref || 'any',
+    singleOptions: ['any', 'arab_national', 'gcc_national', 'local_only'],
+  })
+  if (flags.minSalary) out.push({
+    id: STEP1_FILTER_IDS.minSalary,
+    name: 'Minimum salary',
+    type: 'number',
+    description: `From Role Basics. Candidates expecting below ${v.currency || 'AED'} ${(v.salaryMin ?? 0).toLocaleString()} are rejected.`,
+    required: true,
+    numberValue: v.salaryMin ?? 0,
+  })
+  // joinImmediately === 'immediate' is implicitly mandatory — no separate
+  // checkbox; "flexible" means the recruiter is open to notice periods.
+  if (v.joinImmediately === 'immediate') out.push({
+    id: STEP1_FILTER_IDS.joinImmediately,
+    name: 'Immediate joining',
+    type: 'boolean',
+    description: 'From Role Basics. Candidates who cannot join immediately (with notice >30 days) are rejected.',
+    required: true,
+    booleanValue: true,
+  })
+  return out
+}
+
 const BAND_THEMES: Record<RecommendationBand['color'], { bg: string; border: string; fg: string }> = {
   green:  { bg: '#F0FDF4', border: '#BBF7D0', fg: '#166534' },
   yellow: { bg: '#FFFBEB', border: '#FDE68A', fg: '#92400E' },
@@ -86,10 +170,20 @@ const schema = z.object({
   salaryMax:            z.number().min(1, 'Required'),
   visaRequirement:      z.enum(['any','residence_visa','own_visa','gcc_national','citizen_only']),
   nationalityPref:      z.enum(['any','arab_national','gcc_national','local_only']),
+  joinImmediately:      z.enum(['immediate','flexible']),
   minExperienceYears:   z.number().min(0),
   requiredLanguages:    z.array(z.string()).min(1),
   requiredSkills:       z.array(z.string()).min(1, 'Add at least one required skill'),
   preferredSkills:      z.array(z.string()),
+  // "Mark as Mandatory" toggles — when true, the corresponding Step 1 field is
+  // promoted to a hard filter and passed to the AI as a gating criterion.
+  mandatoryFlags:       z.object({
+    minExperience:    z.boolean(),
+    minSalary:        z.boolean(),
+    visaRequirement:  z.boolean(),
+    nationalityPref:  z.boolean(),
+    requiredSkills:   z.boolean(),
+  }),
   // Step 2
   jdMode:               z.enum(['builder','paste']),
   jdQ1:                 z.string().optional(),
@@ -162,7 +256,7 @@ const COUNTRIES = [
 
 // ── STEP INDICATOR ────────────────────────────────────────────────────────────
 function StepIndicator({ step, total }: { step: number; total: number }) {
-  const labels = ['Role Basics','JD Builder','Screening Criteria','Baseline Questions']
+  const labels = ['Role Basics','JD Builder','AI Screening Criteria','Baseline Questions']
   return (
     <div className="flex items-center justify-center mb-8">
       {labels.map((label, i) => {
@@ -222,6 +316,36 @@ function TagInput({ tags, onChange, placeholder, color }: {
   )
 }
 
+// ── MARK AS MANDATORY CHECKBOX ────────────────────────────────────────────────
+// Inline toggle that promotes a Step-1 field to a hard filter. Renders next to
+// the field label so the recruiter can decide field-by-field. Tooltip explains
+// the AI gating implication.
+function MandatoryToggle({ checked, onChange, fieldName }: {
+  checked: boolean; onChange: (v: boolean) => void; fieldName: string
+}) {
+  return (
+    <label
+      className="inline-flex items-center gap-1 cursor-pointer text-[11px] font-medium select-none px-2 py-0.5 rounded-md transition-colors"
+      style={{
+        background: checked ? '#FEE2E2' : '#F3F4F6',
+        color:      checked ? '#991B1B' : '#6B7280',
+      }}
+      title={checked
+        ? `${fieldName} is a hard filter — candidates who fail are rejected before AI scoring.`
+        : `Mark as mandatory to make ${fieldName} a hard filter for AI screening.`}
+    >
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={e => onChange(e.target.checked)}
+        className="w-3 h-3"
+        style={{ accentColor: '#991B1B' }}
+      />
+      <span>{checked ? '🔒 Mandatory' : 'Mark as Mandatory'}</span>
+    </label>
+  )
+}
+
 // ── MAIN COMPONENT ────────────────────────────────────────────────────────────
 export default function NewJobPage() {
   const router = useRouter()
@@ -242,12 +366,17 @@ export default function NewJobPage() {
     defaultValues: {
       locationCountry: 'AE', currency: 'AED', employmentType: 'permanent',
       jobType: 'onsite', visaRequirement: 'any', nationalityPref: 'any',
+      joinImmediately: 'flexible',
       minExperienceYears: 3, salaryMin: 0, salaryMax: 0,
       requiredLanguages: ['English'], requiredSkills: [], preferredSkills: [],
       mustHaveSkills: [], niceToHaveSkills: [],
       jdMode: 'paste', screeningQuestions: [],
       hardFilters: [],
       recommendationBands: DEFAULT_BANDS,
+      mandatoryFlags: {
+        minExperience: false, minSalary: false, visaRequirement: false,
+        nationalityPref: false, requiredSkills: false,
+      },
     },
   })
 
@@ -267,6 +396,7 @@ export default function NewJobPage() {
           router.push('/jobs')
           return
         }
+        const userCriteria = (j.extractedCriteria as any)?.userScreeningCriteria || {}
         reset({
           ...getValues(),
           title:                j.title || '',
@@ -281,6 +411,14 @@ export default function NewJobPage() {
           requiredLanguages:    j.requiredLanguages?.length ? j.requiredLanguages : ['English'],
           requiredSkills:       j.requiredSkills || [],
           preferredSkills:      j.preferredSkills || [],
+          visaRequirement:      userCriteria.visaRequirement || 'any',
+          nationalityPref:      userCriteria.nationalityPref || 'any',
+          joinImmediately:      userCriteria.joinImmediately || 'flexible',
+          mandatoryFlags:       userCriteria.mandatoryFlags || {
+            minExperience: false, minSalary: false, visaRequirement: false,
+            nationalityPref: false, requiredSkills: false,
+          },
+          hardFilters:          Array.isArray(userCriteria.customHardFilters) ? userCriteria.customHardFilters : [],
           jdText:               j.jdText || '',
           generatedJdEn:        j.jdText || '',
           jdMode:               'paste',
@@ -307,42 +445,19 @@ export default function NewJobPage() {
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   )
 
-  // Seed Hard Filters from Step 1 values when entering Step 3 with empty list
-  useEffect(() => {
-    if (step !== 3) return
-    const current = getValues('hardFilters') || []
-    if (current.length > 0) return
-    const v = getValues()
-    const seeded: HardFilter[] = [
-      {
-        id: 'hf-min-experience',
-        name: 'Minimum experience',
-        type: 'number',
-        description: 'Candidates below this are rejected before scoring',
-        required: true,
-        numberValue: v.minExperienceYears ?? 0,
-      },
-      {
-        id: 'hf-required-skills',
-        name: 'Required skills',
-        type: 'multi_select',
-        description: 'Missing any of these = automatic rejection',
-        required: true,
-        multiValues: v.requiredSkills || [],
-      },
-      {
-        id: 'hf-visa',
-        name: 'Visa requirement',
-        type: 'single_select',
-        description: 'Applied to every applicant',
-        required: true,
-        singleValue: v.visaRequirement || 'any',
-        singleOptions: ['any', 'residence_visa', 'own_visa', 'gcc_national', 'citizen_only'],
-      },
-    ]
-    setValue('hardFilters', seeded, { shouldDirty: false })
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step])
+  // Hard filters in form state (`hardFilters`) hold only CUSTOM filters added
+  // via the modal. Step-1-derived filters are computed live from the values +
+  // `mandatoryFlags` so toggling a checkbox in Step 1 immediately reflects in
+  // Step 3 (and re-editing a Step-1 value updates the filter without manual
+  // re-seeding). See `deriveStep1Filters` below.
+
+  const setMandatoryFlag = (key: MandatoryFlagKey, checked: boolean) => {
+    const current = getValues('mandatoryFlags') || {
+      minExperience: false, minSalary: false, visaRequirement: false,
+      nationalityPref: false, requiredSkills: false,
+    }
+    setValue('mandatoryFlags', { ...current, [key]: checked }, { shouldDirty: true })
+  }
 
   const onCountryChange = (country: string) => {
     setValue('locationCountry', country)
@@ -394,15 +509,29 @@ export default function NewJobPage() {
 
     setIsGeneratingQuestions(true)
     try {
+      // Merge Step-1-derived hard filters with any custom ones for the backend
+      // payload. Step-1 ones aren't kept in form state (they're derived live)
+      // so we recompute them here at submit time.
+      const step1Filters = deriveStep1Filters(v)
+      const customFilters = v.hardFilters || []
+      const allHardFilters = [...step1Filters, ...customFilters]
+
       const payload = {
         title: v.title, hiringCompany: v.hiringCompany,
         locationCountry: v.locationCountry, locationCity: v.customCity || v.locationCity,
         employmentType: v.employmentType, jobType: v.jobType,
         currency: v.currency, salaryMin: v.salaryMin, salaryMax: v.salaryMax,
         visaRequirement: v.visaRequirement, nationalityPref: v.nationalityPref,
+        joinImmediately: v.joinImmediately,
         minExperienceYears: v.minExperienceYears, requiredLanguages: v.requiredLanguages,
         requiredSkills: v.requiredSkills, preferredSkills: v.preferredSkills,
         mustHaveSkills: v.mustHaveSkills, niceToHaveSkills: v.niceToHaveSkills,
+        // Recruiter-defined hard filters — persisted under
+        // extractedCriteria.userScreeningCriteria server-side and passed to the
+        // AI on every CV scoring call as gating criteria.
+        mandatoryFlags: v.mandatoryFlags,
+        hardFilters: allHardFilters,
+        customHardFilters: customFilters,
         jdText,
         allowDuplicate,
       }
@@ -415,19 +544,26 @@ export default function NewJobPage() {
       const jobId = jobRes.data.data.id
       setCreatedJobId(jobId)
 
-      // Poll for questions
+      // Poll briefly for questions if they aren't on the create/patch response.
+      // 5×2s = 10s ceiling — enough for Claude to land via the side-effect path,
+      // but short enough that a stuck/failed AI call doesn't hold the recruiter.
+      // If still empty after polling, advance to Step 4 anyway with a toast — the
+      // UI supports manually authoring questions.
       const questions = jobRes.data.data.screeningQuestions || []
+      let finalQuestions = questions
       if (questions.length === 0) {
-        for (let i = 0; i < 8; i++) {
-          await new Promise(r => setTimeout(r, 3500))
+        for (let i = 0; i < 5; i++) {
+          await new Promise(r => setTimeout(r, 2000))
           try {
             const pollRes = await api.get<any>(`/jobs/${jobId}`)
             const q = pollRes.data.data.screeningQuestions || []
-            if (q.length > 0) { setValue('screeningQuestions', q); break }
+            if (q.length > 0) { finalQuestions = q; break }
           } catch {}
         }
-      } else {
-        setValue('screeningQuestions', questions)
+      }
+      setValue('screeningQuestions', finalQuestions)
+      if (finalQuestions.length === 0) {
+        toast.error("AI couldn't generate questions — add them manually below.")
       }
 
       setStep(4)
@@ -471,7 +607,7 @@ export default function NewJobPage() {
   // STEP 1: ROLE BASICS
   // ─────────────────────────────────────────────────────────────────────────
   if (step === 1) return (
-    <div className="max-w-2xl mx-auto">
+    <div className="max-w-4xl mx-auto">
       <div className="mb-6">
         <h1 className="text-2xl font-bold" style={{color:'#0A3D2E'}}>Post New Job</h1>
         <p className="text-gray-500 text-sm mt-1">Fill in the details to start screening candidates</p>
@@ -568,7 +704,7 @@ export default function NewJobPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-2 gap-4">
           <div>
             <label className={labelCls}>Employment Type *</label>
             <div className="flex gap-1.5">
@@ -599,34 +735,53 @@ export default function NewJobPage() {
               ))}
             </div>
           </div>
-          <div>
-            <label className={labelCls}>Min Experience (years) *</label>
-            <input type="number" {...register('minExperienceYears', {valueAsNumber:true})} min={0} max={30} className={inputCls} />
-          </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-4">
-          <div>
-            <label className={labelCls}>Currency</label>
-            <select {...register('currency')} className={inputCls}>
-              <optgroup label="GCC">
-                <option value="AED">🇦🇪 AED</option>
-                <option value="SAR">🇸🇦 SAR</option>
-                <option value="BHD">🇧🇭 BHD</option>
-                <option value="KWD">🇰🇼 KWD</option>
-                <option value="QAR">🇶🇦 QAR</option>
-                <option value="OMR">🇴🇲 OMR</option>
-              </optgroup>
-              <optgroup label="International">
-                <option value="USD">🇺🇸 USD</option>
-                <option value="GBP">🇬🇧 GBP</option>
-              </optgroup>
-            </select>
+        <div>
+          <div className="flex items-center justify-between mb-1.5">
+            <label className="block text-sm font-medium text-gray-700">Min Experience (years) *</label>
+            <MandatoryToggle
+              checked={!!vals.mandatoryFlags?.minExperience}
+              onChange={v => setMandatoryFlag('minExperience', v)}
+              fieldName="Minimum experience"
+            />
           </div>
+          <input type="number" {...register('minExperienceYears', {valueAsNumber:true})} min={0} max={30} className={inputCls} />
+        </div>
+
+        <div>
+          <label className={labelCls}>Currency</label>
+          <select {...register('currency')} className={inputCls}>
+            <optgroup label="GCC">
+              <option value="AED">🇦🇪 AED</option>
+              <option value="SAR">🇸🇦 SAR</option>
+              <option value="BHD">🇧🇭 BHD</option>
+              <option value="KWD">🇰🇼 KWD</option>
+              <option value="QAR">🇶🇦 QAR</option>
+              <option value="OMR">🇴🇲 OMR</option>
+            </optgroup>
+            <optgroup label="International">
+              <option value="USD">🇺🇸 USD</option>
+              <option value="GBP">🇬🇧 GBP</option>
+            </optgroup>
+          </select>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className={labelCls}>Min Salary ({vals.currency}) <span className="text-gray-400 font-normal text-xs">per month</span></label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-sm font-medium text-gray-700">
+                Min Salary ({vals.currency}) <span className="text-gray-400 font-normal text-xs">per month</span>
+              </label>
+              <MandatoryToggle
+                checked={!!vals.mandatoryFlags?.minSalary}
+                onChange={v => setMandatoryFlag('minSalary', v)}
+                fieldName="Minimum salary"
+              />
+            </div>
             <input type="number" {...register('salaryMin', {valueAsNumber:true})} className={inputCls} placeholder="e.g. 15,000" />
           </div>
+
           <div>
             <label className={labelCls}>Max Salary ({vals.currency}) <span className="text-gray-400 font-normal text-xs">per month</span></label>
             <input type="number" {...register('salaryMax', {valueAsNumber:true})} className={inputCls} placeholder="e.g. 25,000" />
@@ -635,7 +790,14 @@ export default function NewJobPage() {
 
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className={labelCls}>Visa Requirement</label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-sm font-medium text-gray-700">Visa Requirement</label>
+              <MandatoryToggle
+                checked={!!vals.mandatoryFlags?.visaRequirement}
+                onChange={v => setMandatoryFlag('visaRequirement', v)}
+                fieldName="Visa requirement"
+              />
+            </div>
             <select {...register('visaRequirement')} className={inputCls}>
               <option value="any">🌍 Open to all visas</option>
               <option value="residence_visa">📋 Must have residence visa</option>
@@ -644,14 +806,43 @@ export default function NewJobPage() {
               <option value="citizen_only">🇦🇪 Citizens only (Emiratization/Saudization)</option>
             </select>
           </div>
+
           <div>
-            <label className={labelCls}>Nationality Preference</label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-sm font-medium text-gray-700">Nationality Preference</label>
+              <MandatoryToggle
+                checked={!!vals.mandatoryFlags?.nationalityPref}
+                onChange={v => setMandatoryFlag('nationalityPref', v)}
+                fieldName="Nationality preference"
+              />
+            </div>
             <select {...register('nationalityPref')} className={inputCls}>
               <option value="any">🌍 Any nationality</option>
               <option value="arab_national">🌙 Arab nationals preferred</option>
               <option value="gcc_national">🏴 GCC nationals preferred</option>
               <option value="local_only">🇦🇪 Local nationals only</option>
             </select>
+          </div>
+        </div>
+
+        {/* Joining timeline — when 'immediate', acts as an implicit hard filter */}
+        <div>
+          <label className={labelCls}>Joining Timeline</label>
+          <div className="flex gap-2">
+            {([
+              { v: 'immediate', label: '⚡ Must join immediately', hint: 'Hard filter — rejects candidates with notice >30 days' },
+              { v: 'flexible',  label: '🗓️ Flexible start date',    hint: 'Open to candidates with notice periods' },
+            ] as const).map(opt => (
+              <label key={opt.v} className="flex-1 cursor-pointer">
+                <input type="radio" {...register('joinImmediately')} value={opt.v} className="sr-only" />
+                <div className={`text-center py-2.5 px-3 text-xs font-medium rounded-lg border-2 transition-all ${
+                  vals.joinImmediately === opt.v ? 'border-emerald-600 text-white' : 'border-gray-200 text-gray-500 hover:border-gray-300'
+                }`} style={vals.joinImmediately === opt.v ? {background:'#0A3D2E'} : {}}>
+                  <div>{opt.label}</div>
+                  <div className={`text-[10px] mt-0.5 font-normal ${vals.joinImmediately === opt.v ? 'opacity-80' : 'opacity-60'}`}>{opt.hint}</div>
+                </div>
+              </label>
+            ))}
           </div>
         </div>
 
@@ -675,7 +866,14 @@ export default function NewJobPage() {
         </div>
 
         <div>
-          <label className={labelCls}>Required Skills *</label>
+          <div className="flex items-center justify-between mb-1.5">
+            <label className="block text-sm font-medium text-gray-700">Required Skills *</label>
+            <MandatoryToggle
+              checked={!!vals.mandatoryFlags?.requiredSkills}
+              onChange={v => setMandatoryFlag('requiredSkills', v)}
+              fieldName="Required skills"
+            />
+          </div>
           <TagInput tags={vals.requiredSkills||[]} onChange={v => setValue('requiredSkills',v)} placeholder="Type a skill and press Enter (e.g. IFRS, SAP, Excel)" />
           {errors.requiredSkills && <p className="text-red-500 text-xs mt-1">Add at least one required skill</p>}
         </div>
@@ -704,7 +902,7 @@ export default function NewJobPage() {
   // STEP 2: JD BUILDER
   // ─────────────────────────────────────────────────────────────────────────
   if (step === 2) return (
-    <div className="max-w-2xl mx-auto">
+    <div className="max-w-4xl mx-auto">
       <div className="mb-6">
         <h1 className="text-2xl font-bold" style={{color:'#0A3D2E'}}>Post New Job</h1>
         <p className="text-gray-500 text-sm mt-1">{vals.title} at {vals.hiringCompany}</p>
@@ -807,7 +1005,7 @@ export default function NewJobPage() {
           setStep(3)
         }} className="px-8 py-2.5 rounded-xl text-sm font-semibold text-white"
           style={{background:'#0A3D2E'}}>
-          Next: Screening Criteria →
+          Next: AI Screening Criteria →
         </button>
       </div>
     </div>
@@ -817,36 +1015,81 @@ export default function NewJobPage() {
   // STEP 3: SCREENING CRITERIA (dynamic filters + editable bands)
   // ─────────────────────────────────────────────────────────────────────────
   if (step === 3) {
-    const filters: HardFilter[] = vals.hardFilters || []
+    // Form's `hardFilters` only holds CUSTOM filters added via the modal.
+    // Step-1-derived filters are computed from values + mandatoryFlags so they
+    // stay in sync without manual seeding.
+    const customFilters: HardFilter[] = vals.hardFilters || []
+    const step1Filters: HardFilter[] = deriveStep1Filters(vals)
+    const filters: HardFilter[] = [...step1Filters, ...customFilters]
     const bands: RecommendationBand[] = vals.recommendationBands || DEFAULT_BANDS
 
     const bandErrors = validateBands(bands)
     const filtersValid = filters.length > 0
     const stepValid = filtersValid && bandErrors.length === 0
 
+    const isStep1Filter = (id: string) => id.startsWith(STEP1_FILTER_PREFIX)
+
     const updateFilter = (next: HardFilter) => {
-      const list = [...filters]
+      // Step-1 filters are read-only here; they're owned by Step 1 form fields.
+      if (isStep1Filter(next.id)) return
+      const list = [...customFilters]
       const idx = list.findIndex(f => f.id === next.id)
       if (idx >= 0) list[idx] = next; else list.push(next)
       setValue('hardFilters', list, { shouldDirty: true })
     }
+
     const removeFilter = (id: string) => {
+      // Per spec: deleting a Step-1-derived filter unmarks the corresponding
+      // mandatory toggle on Step 1 (the field stays in the form, just no longer
+      // a hard filter). Custom filters get removed outright.
+      if (isStep1Filter(id)) {
+        if (!confirm('Remove this hard filter? The field stays on Step 1; it just won\'t be a mandatory gate for AI screening.')) return
+        if (id === STEP1_FILTER_IDS.joinImmediately) {
+          setValue('joinImmediately', 'flexible', { shouldDirty: true })
+          return
+        }
+        const flagByFilterId: Record<string, MandatoryFlagKey> = {
+          [STEP1_FILTER_IDS.minExperience]:   'minExperience',
+          [STEP1_FILTER_IDS.minSalary]:       'minSalary',
+          [STEP1_FILTER_IDS.visaRequirement]: 'visaRequirement',
+          [STEP1_FILTER_IDS.nationalityPref]: 'nationalityPref',
+          [STEP1_FILTER_IDS.requiredSkills]:  'requiredSkills',
+        }
+        const key = flagByFilterId[id]
+        if (key) setMandatoryFlag(key, false)
+        return
+      }
       if (!confirm('Remove this filter?')) return
-      setValue('hardFilters', filters.filter(f => f.id !== id), { shouldDirty: true })
+      setValue('hardFilters', customFilters.filter(f => f.id !== id), { shouldDirty: true })
     }
+
+    const onEditFilter = (id: string) => {
+      // Step-1 filters can only be edited at their source (Step 1).
+      if (isStep1Filter(id)) {
+        toast('Edit this in Role Basics — its value lives on Step 1.', { icon: 'ℹ️' })
+        setStep(1)
+        return
+      }
+      setEditingFilterId(id)
+      setFilterModalOpen(true)
+    }
+
     const onDragEnd = (e: DragEndEvent) => {
       const { active, over } = e
       if (!over || active.id === over.id) return
-      const oldIdx = filters.findIndex(f => f.id === active.id)
-      const newIdx = filters.findIndex(f => f.id === over.id)
+      // Only custom filters are reorderable; Step-1 filters are always shown
+      // first and locked in their derived order.
+      if (isStep1Filter(String(active.id)) || isStep1Filter(String(over.id))) return
+      const oldIdx = customFilters.findIndex(f => f.id === active.id)
+      const newIdx = customFilters.findIndex(f => f.id === over.id)
       if (oldIdx < 0 || newIdx < 0) return
-      setValue('hardFilters', arrayMove(filters, oldIdx, newIdx), { shouldDirty: true })
+      setValue('hardFilters', arrayMove(customFilters, oldIdx, newIdx), { shouldDirty: true })
     }
 
-    const editingFilter = editingFilterId ? filters.find(f => f.id === editingFilterId) : undefined
+    const editingFilter = editingFilterId ? customFilters.find(f => f.id === editingFilterId) : undefined
 
     return (
-      <div className="max-w-2xl mx-auto">
+      <div className="max-w-4xl mx-auto">
         <div className="mb-6">
           <h1 className="text-2xl font-bold" style={{color:"#0A3D2E"}}>Post New Job</h1>
           <p className="text-gray-500 text-sm mt-1">{vals.title} at {vals.hiringCompany}</p>
@@ -854,8 +1097,11 @@ export default function NewJobPage() {
         <StepIndicator step={3} total={4} />
         <div className="bg-white border border-gray-200 rounded-2xl p-6 space-y-6">
           <div>
-            <h2 className="text-lg font-semibold" style={{color:"#0A3D2E"}}>Screening Criteria</h2>
-            <p className="text-sm text-gray-500 mt-1">Manage hard filters and AI recommendation thresholds for this role.</p>
+            <h2 className="text-lg font-semibold" style={{color:"#0A3D2E"}}>AI Screening Criteria</h2>
+            <p className="text-sm text-gray-500 mt-1">
+              Hard filters seeded from Role Basics are shown below. Edit jumps back to Step 1; Delete unmarks the field as mandatory.
+              Add custom filters for criteria that don&apos;t live in Role Basics.
+            </p>
           </div>
 
           {/* HARD FILTERS — dynamic list */}
@@ -866,20 +1112,36 @@ export default function NewJobPage() {
             </div>
             <div className="p-4 space-y-2">
               {filters.length === 0 ? (
-                <p className="text-sm text-gray-400 italic py-4 text-center">No filters yet. Add at least one to continue.</p>
+                <p className="text-sm text-gray-400 italic py-4 text-center">
+                  No hard filters yet. Mark fields as <span className="font-medium">🔒 Mandatory</span> on Step 1, or use &quot;Add Filter&quot; below.
+                </p>
               ) : (
-                <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-                  <SortableContext items={filters.map(f => f.id)} strategy={verticalListSortingStrategy}>
-                    {filters.map(f => (
-                      <SortableFilterRow
-                        key={f.id}
-                        filter={f}
-                        onEdit={() => { setEditingFilterId(f.id); setFilterModalOpen(true) }}
-                        onDelete={() => removeFilter(f.id)}
-                      />
-                    ))}
-                  </SortableContext>
-                </DndContext>
+                <>
+                  {/* Step-1-derived filters — read-only, no drag handle */}
+                  {step1Filters.map(f => (
+                    <Step1FilterRow
+                      key={f.id}
+                      filter={f}
+                      onEdit={() => onEditFilter(f.id)}
+                      onDelete={() => removeFilter(f.id)}
+                    />
+                  ))}
+                  {/* Custom filters — draggable */}
+                  {customFilters.length > 0 && (
+                    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+                      <SortableContext items={customFilters.map(f => f.id)} strategy={verticalListSortingStrategy}>
+                        {customFilters.map(f => (
+                          <SortableFilterRow
+                            key={f.id}
+                            filter={f}
+                            onEdit={() => onEditFilter(f.id)}
+                            onDelete={() => removeFilter(f.id)}
+                          />
+                        ))}
+                      </SortableContext>
+                    </DndContext>
+                  )}
+                </>
               )}
               <button type="button"
                 onClick={() => { setEditingFilterId(null); setFilterModalOpen(true) }}
@@ -1030,7 +1292,7 @@ export default function NewJobPage() {
   // STEP 4: BASELINE QUESTIONS
   // ─────────────────────────────────────────────────────────────────────────
   return (
-    <div className="max-w-2xl mx-auto">
+    <div className="max-w-4xl mx-auto">
       <div className="mb-6">
         <h1 className="text-2xl font-bold" style={{color:'#0A3D2E'}}>Post New Job</h1>
         <p className="text-gray-500 text-sm mt-1">{vals.title} at {vals.hiringCompany}</p>
@@ -1186,10 +1448,47 @@ function filterValueSummary(f: HardFilter): string {
     case 'multi_select': return (f.multiValues && f.multiValues.length) ? f.multiValues.join(', ') : '—'
     case 'single_select': {
       const raw = f.singleValue || '—'
-      return VISA_LABELS[raw] || raw
+      return VISA_LABELS[raw] || NATIONALITY_LABELS[raw] || raw
     }
     case 'boolean': return f.booleanValue ? 'Yes' : 'No'
   }
+}
+
+// ── STEP-1-DERIVED FILTER ROW ─────────────────────────────────────────────────
+// Read-only row for filters seeded from Role Basics. Edit jumps to Step 1;
+// Delete unmarks the corresponding mandatory flag (handled by parent).
+function Step1FilterRow({ filter, onEdit, onDelete }: {
+  filter: HardFilter; onEdit: () => void; onDelete: () => void
+}) {
+  return (
+    <div className="flex items-start gap-2 py-2 border-b border-gray-50 last:border-b-0">
+      <span className="px-1 py-1 mt-0.5 text-gray-300" title="Locked — edit on Step 1">🔒</span>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <p className="text-sm font-medium text-gray-700">{filter.name}</p>
+          <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium" style={{ background: '#E0F2FE', color: '#075985' }}>
+            From Step 1
+          </span>
+        </div>
+        <p className="text-xs text-gray-400">{filter.description}</p>
+        {filter.type === 'multi_select' ? (
+          <div className="flex flex-wrap gap-1.5 mt-1.5">
+            {(filter.multiValues || []).length === 0 ? (
+              <span className="text-xs text-gray-300 italic">No values</span>
+            ) : (filter.multiValues || []).map(v => (
+              <span key={v} className="px-2 py-0.5 rounded-md text-xs font-medium" style={{ background: '#FEE2E2', color: '#991B1B' }}>✗ {v}</span>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm font-semibold mt-0.5" style={{ color: '#0A3D2E' }}>{filterValueSummary(filter)}</p>
+        )}
+      </div>
+      <div className="flex items-center gap-3 mt-1">
+        <button type="button" onClick={onEdit} className="text-xs text-blue-500 underline">Edit</button>
+        <button type="button" onClick={onDelete} className="text-xs text-gray-400 hover:text-red-500">Delete</button>
+      </div>
+    </div>
+  )
 }
 
 // ── SORTABLE FILTER ROW ───────────────────────────────────────────────────────

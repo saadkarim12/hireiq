@@ -86,14 +86,16 @@ export default function PipelinePage({ params }: PageProps) {
 
   const handleShare = async () => {
     if (!job) return
-    const applyUrl = `https://hireiq.ai/apply/${job.applyUrlSlug}`
+    const origin = typeof window !== 'undefined' ? window.location.origin : 'https://hireiq.ai'
+    const applyUrl = `${origin}/apply/${job.applyUrlSlug}`
     await navigator.clipboard.writeText(applyUrl)
     toast.success('Apply link copied to clipboard!')
   }
 
   const handleLinkedIn = () => {
     if (!job) return
-    const applyUrl = `https://hireiq.ai/apply/${job.applyUrlSlug}`
+    const origin = typeof window !== 'undefined' ? window.location.origin : 'https://hireiq.ai'
+    const applyUrl = `${origin}/apply/${job.applyUrlSlug}`
     const country = job.locationCountry === 'AE' ? 'UAE' : job.locationCountry === 'SA' ? 'Saudi Arabia' : job.locationCountry
     const post = `🚀 We're Hiring: ${job.title}
 📍 ${job.hiringCompany} · ${job.locationCity}, ${country}
