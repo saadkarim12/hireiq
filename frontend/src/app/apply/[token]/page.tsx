@@ -68,7 +68,6 @@ export default async function ApplyPage({ params }: { params: { token: string } 
       <header className="border-b border-gray-200 bg-white">
         <div className="mx-auto max-w-3xl px-6 py-4 flex items-center gap-2">
           <span className="text-2xl font-bold text-[#0D1B2A]">HireIQ</span>
-          <span className="text-sm text-gray-500">Powered by</span>
         </div>
       </header>
 
@@ -114,9 +113,35 @@ export default async function ApplyPage({ params }: { params: { token: string } 
             </div>
           )}
 
-          <div className="mt-6 prose prose-sm max-w-none text-gray-700 whitespace-pre-wrap">
-            {job.jdText}
-          </div>
+          <details className="mt-6 group rounded-xl border border-gray-200 bg-gray-50/40 overflow-hidden transition-colors hover:border-[#C9A84C]/50">
+            <summary className="flex items-center justify-between gap-3 px-5 py-4 cursor-pointer select-none list-none">
+              <div className="flex items-center gap-3">
+                <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[#C9A84C]/10 text-[#C9A84C] text-base">
+                  📄
+                </span>
+                <div>
+                  <p className="text-sm font-semibold text-[#0D1B2A] leading-tight">Role Overview</p>
+                  <p className="text-xs text-gray-500 mt-0.5 group-open:hidden">
+                    Click to read the full job description
+                  </p>
+                  <p className="text-xs text-gray-500 mt-0.5 hidden group-open:block">
+                    Click to collapse
+                  </p>
+                </div>
+              </div>
+              <svg
+                className="h-5 w-5 shrink-0 text-gray-400 transition-transform duration-200 group-open:rotate-180"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </summary>
+            <div className="px-5 pb-5 pt-4 border-t border-gray-200 bg-white prose prose-sm max-w-none text-gray-700 whitespace-pre-wrap">
+              {job.jdText}
+            </div>
+          </details>
         </section>
 
         <ApplyForm token={params.token} jobTitle={job.title} questions={questions} />
