@@ -17,6 +17,7 @@ import { candidatesRouter } from './routes/candidates'
 import { analyticsRouter }  from './routes/analytics'
 import { adminRouter }      from './routes/admin'
 import { healthRouter }     from './routes/health'
+import { publicApplyRouter } from './routes/public-apply'
 
 const app  = express()
 const http = createServer(app)
@@ -43,7 +44,23 @@ app.use(express.json({ limit: '10mb' }))
 app.use(express.urlencoded({ extended: true }))
 app.use(morgan('dev'))
 
-// Rate limiting
+// Public application flow — mounted BEFORE the global /api/v1/ limiter so the
+// 200/min cap doesn't eat its 60/min GET + 5/hr/10/day POST per-IP budgets.
+// Helmet's frame-ancestors:none also blocks the apply page from being iframed.
+app.use(
+  '/api/v1/public',
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        'script-src': ["'self'"],
+        'frame-ancestors': ["'none'"],
+      },
+    },
+  }),
+  publicApplyRouter,
+)
+
+// Rate limiting (applies to authenticated /api/v1/* — public/* is mounted above)
 app.use('/api/v1/', rateLimit({
   windowMs: 60 * 1000,
   max: 200,

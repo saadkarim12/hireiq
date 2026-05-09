@@ -1,5 +1,6 @@
 // src/core-api/routes/jobs.ts
 import { Router } from 'express'
+import crypto from 'crypto'
 import { prisma } from '../../shared/db'
 import { requireAuth, AuthRequest } from '../middleware/auth'
 import { logger } from '../../shared/logger'
@@ -10,6 +11,7 @@ export const jobsRouter = Router()
 jobsRouter.use(requireAuth)
 
 const AI_ENGINE_URL = `http://localhost:${process.env.AI_ENGINE_PORT || 3002}`
+const PUBLIC_APP_URL = process.env.PUBLIC_APP_URL || 'http://localhost:3000'
 
 // Helper — generate unique slug
 function generateSlug(title: string, company: string): string {
@@ -19,6 +21,16 @@ function generateSlug(title: string, company: string): string {
 
 function generateShortcode(): string {
   return 'JB' + Math.random().toString(36).slice(2, 7).toUpperCase()
+}
+
+// 64-char hex, ~256 bits of entropy. Used for the public /apply/:token URL.
+// High-entropy + non-enumerable so guessing one token doesn't expose the rest.
+function generateApplicationToken(): string {
+  return crypto.randomBytes(32).toString('hex')
+}
+
+function buildApplicationUrl(token: string): string {
+  return `${PUBLIC_APP_URL}/apply/${token}`
 }
 
 // 4.3.c — Duplicate pre-check. Wizard calls this on title/company blur to warn
@@ -70,7 +82,13 @@ jobsRouter.get('/', async (req: AuthRequest, res) => {
       const daysOpen = job.activatedAt
         ? Math.floor((Date.now() - job.activatedAt.getTime()) / 86400000)
         : 0
-      return { ...job, applicationsCount: job._count.candidates, shortlistedCount, daysOpen }
+      return {
+        ...job,
+        applicationsCount: job._count.candidates,
+        shortlistedCount,
+        daysOpen,
+        applicationUrl: buildApplicationUrl(job.applicationToken),
+      }
     }))
 
     const lastId = jobs[jobs.length - 1]?.id
@@ -89,7 +107,7 @@ jobsRouter.get('/:id', async (req: AuthRequest, res) => {
       include: { recruiter: { select: { id: true, fullName: true } } },
     })
     if (!job) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Job not found' } })
-    res.json({ success: true, data: job })
+    res.json({ success: true, data: { ...job, applicationUrl: buildApplicationUrl(job.applicationToken) } })
   } catch (err) {
     res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to get job' } })
   }
@@ -127,8 +145,9 @@ jobsRouter.post('/', async (req: AuthRequest, res) => {
       }
     }
 
-    const applyUrlSlug = generateSlug(title, hiringCompany)
-    const waShortcode  = generateShortcode()
+    const applyUrlSlug     = generateSlug(title, hiringCompany)
+    const waShortcode      = generateShortcode()
+    const applicationToken = generateApplicationToken()
 
     // Create job first
     const job = await prisma.job.create({
@@ -141,7 +160,7 @@ jobsRouter.post('/', async (req: AuthRequest, res) => {
         preferredSkills: preferredSkills || [],
         minExperienceYears: minExperienceYears || 0,
         requiredLanguages: requiredLanguages || ['English'],
-        jdText, applyUrlSlug, waShortcode,
+        jdText, applyUrlSlug, waShortcode, applicationToken,
         status: 'draft',
         closingDate: closingDate ? new Date(closingDate) : null,
       },
@@ -167,10 +186,10 @@ jobsRouter.post('/', async (req: AuthRequest, res) => {
         data: { extractedCriteria, screeningQuestions },
       })
 
-      res.status(201).json({ success: true, data: { ...job, extractedCriteria, screeningQuestions, applyUrl: `http://localhost:3000/apply/${applyUrlSlug}` } })
+      res.status(201).json({ success: true, data: { ...job, extractedCriteria, screeningQuestions, applicationUrl: buildApplicationUrl(applicationToken) } })
     } catch (aiErr) {
       logger.warn('AI Engine unavailable — job created without AI criteria', { jobId: job.id })
-      res.status(201).json({ success: true, data: { ...job, extractedCriteria: null, screeningQuestions: [] } })
+      res.status(201).json({ success: true, data: { ...job, extractedCriteria: null, screeningQuestions: [], applicationUrl: buildApplicationUrl(applicationToken) } })
     }
   } catch (err: any) {
     const detail = err?.message || 'Unknown error'
@@ -294,14 +313,70 @@ jobsRouter.post('/:id/activate', async (req: AuthRequest, res) => {
       data: { status: 'active', activatedAt: new Date() },
     })
 
-    const applyUrl  = `http://localhost:3000/apply/${job.applyUrlSlug}`
-    const waLink    = `https://wa.me/${job.waShortcode}`
+    const applicationUrl = buildApplicationUrl(job.applicationToken)
+    const waLink         = `https://wa.me/${job.waShortcode}`
 
     logger.info(`Job activated: ${job.title} (${job.id})`)
 
-    res.json({ success: true, data: { ...updated, applyUrl, waLink } })
+    res.json({ success: true, data: { ...updated, applicationUrl, waLink } })
   } catch (err) {
     res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to activate job' } })
+  }
+})
+
+// ── REGENERATE PUBLIC APPLICATION TOKEN ────────────────────────────────────────
+// Use case: link leaked, abused, or scraped. Old URL stops working immediately;
+// recruiter shares the new one. Existing candidates already in the pipeline
+// are untouched — only future submissions are affected.
+jobsRouter.post('/:id/regenerate-application-token', async (req: AuthRequest, res) => {
+  try {
+    const job = await prisma.job.findFirst({
+      where: { id: req.params.id, agencyId: req.user!.agencyId },
+      select: { id: true, title: true },
+    })
+    if (!job) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Job not found' } })
+
+    const newToken = generateApplicationToken()
+    const updated = await prisma.job.update({
+      where: { id: job.id },
+      data: { applicationToken: newToken },
+    })
+    logger.info(`Application token regenerated: ${job.title} (${job.id})`)
+    res.json({ success: true, data: { ...updated, applicationUrl: buildApplicationUrl(newToken) } })
+  } catch (err: any) {
+    logger.error('Regenerate token error', { err: err?.message })
+    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to regenerate token' } })
+  }
+})
+
+// ── TOGGLE PUBLIC LINK ACTIVE / EXPIRY ────────────────────────────────────────
+// PATCH /:id/link-status accepts { isLinkActive?: boolean, linkExpiresAt?: ISO|null }.
+// Either field is optional; both can be sent together.
+jobsRouter.patch('/:id/link-status', async (req: AuthRequest, res) => {
+  try {
+    const { isLinkActive, linkExpiresAt } = req.body
+    const data: any = {}
+    if (typeof isLinkActive === 'boolean') data.isLinkActive = isLinkActive
+    if (linkExpiresAt === null) data.linkExpiresAt = null
+    else if (typeof linkExpiresAt === 'string') {
+      const d = new Date(linkExpiresAt)
+      if (isNaN(d.getTime())) return res.status(400).json({ success: false, error: { code: 'VALIDATION', message: 'Invalid linkExpiresAt' } })
+      data.linkExpiresAt = d
+    }
+    if (Object.keys(data).length === 0) {
+      return res.status(400).json({ success: false, error: { code: 'VALIDATION', message: 'No changes supplied' } })
+    }
+    const job = await prisma.job.findFirst({
+      where: { id: req.params.id, agencyId: req.user!.agencyId },
+      select: { id: true },
+    })
+    if (!job) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Job not found' } })
+
+    const updated = await prisma.job.update({ where: { id: job.id }, data })
+    res.json({ success: true, data: { ...updated, applicationUrl: buildApplicationUrl(updated.applicationToken) } })
+  } catch (err: any) {
+    logger.error('Link-status update error', { err: err?.message })
+    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to update link status' } })
   }
 })
 
