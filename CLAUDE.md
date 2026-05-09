@@ -36,7 +36,7 @@ Saad orchestrates five specialised AI advisors, each in a separate Claude chat. 
 - Second demo: **DigyCorp** (direct employer variant)
 - Target: UAE + KSA large recruitment agencies
 - Repo: github.com/saadkarim12/hireiq
-- Current tag: v1.11.4
+- Current tag: v1.12.0
 
 ## Tech Stack
 - **Frontend**: Next.js 14 (App Router), TypeScript, Tailwind, TanStack Query, shadcn/ui
@@ -113,6 +113,7 @@ cd ~/hireiq/frontend && npm run dev
 5. **Dashboard v3** — 8 KPIs with period filter (Month/Quarter/6M/Year) + Recent Activity feed
 6. **WhatsApp Mock** — at http://localhost:3003/mock
 7. **User Flow** — Two parallel flows (CV Inbox + Talent Pool) documented in `docs/HireIQ_User_Flow_v1.1.docx`
+8. **Public Application Links (v1.12.0)** — Each Job has an `applicationToken` (64-char hex, regenerable). Recruiter copies the URL `${PUBLIC_APP_URL}/apply/<token>` from the job-view page and shares on LinkedIn / outreach. Public route at `/apply/[token]` (outside `(dashboard)` group, no auth, no sidebar) renders job + dropzone + screening Qs + consent. Submissions go through honeypot → Turnstile (env-gated) → magic-byte file sniff → Zod validation → dupe check (jobId+email, 409) → AI extract-text → AI parse-cv → cheap code-only hard-filter (years + 70% required-skills substring match). Pass → Candidate at `applied` with `entryPath:'public_link'` + async Claude `score-cv` fires. Fail → Candidate at `rejected` with `hardFilterFailReason`, NO Claude spend. Candidate ALWAYS sees generic "received" — pass/fail never leaks. Per-IP limits: 60/min GET, 5/hr + 10/day POST. Recruiter can toggle `isLinkActive` or regenerate the token (old URL dies instantly). CVs are parse-and-discard (matches bulk-upload — file persistence deferred to Phase 7 Azure Blob).
 
 ### Scoring Model (CRITICAL — Phase 6k reworked)
 Two-stage scoring aligned to kanban stages:
@@ -158,7 +159,7 @@ One primary button per drawer, label follows the next stage: **"✅ Approve to L
 - **Personalised WhatsApp** — Different message tone for new vs pool candidates
 - **Pipeline level naming** — Applied/L1/L2/L3/Final (not generic HR labels)
 - **Funnel + Kanban** — Funnel for big picture, kanban for action
-- **Stage-change audit** — Every pipelineStage transition is appended to `pipelineStageHistory` JSON array `{from, to, timestamp, userId, entryPath?}`. The first entry carries `entryPath: 'tp_direct'` (TP → L1 / TP → Applied) or `entryPath: 'cv_inbox'` (bulk-upload accept) so analytics can distinguish flow paths. Backward moves are logged (not blocked) so we can answer "why was this candidate un-promoted?"
+- **Stage-change audit** — Every pipelineStage transition is appended to `pipelineStageHistory` JSON array `{from, to, timestamp, userId, entryPath?}`. The first entry carries `entryPath: 'tp_direct'` (TP → L1 / TP → Applied), `entryPath: 'cv_inbox'` (bulk-upload accept), or `entryPath: 'public_link'` (v1.12.0 public application form) so analytics can distinguish flow paths. Backward moves are logged (not blocked) so we can answer "why was this candidate un-promoted?"
 
 ### Seeded Test Data
 6 synthetic candidates in pool:
@@ -212,6 +213,21 @@ Plus 10 Cloud Architect pipeline candidates (Omar Farouk, Ahmed Al-Rashidi, Sara
 - Analytics: new KPI in Pipeline Funnel card — `TP → L1 direct: X / Y L1 entries (Z% skipped Applied)`. Backend `kpis.tpDirectL1{Count, Percent, Total}`.
 
 **v1.11.4** (`0df3deb`) — Recruiter-initiated re-score in TP drawer. Saad's UX call after seeing v1.11.3: auto-firing Claude on every drawer open is wrong; recruiter should opt in. Gold "Match for" card now opens with a CTA button "🔍 Re-parse & re-score CV against <Job>" + previous score reference. Click fires Claude (~10s); result is cached per (candidateId, jobId) in React Query session cache so subsequent opens show the result directly with no new Claude call. Error path includes a "Try again" link.
+
+### 2026-05-09 — v1.12.0 Public Application Links
+
+**v1.12.0** — Third pipeline entry path: candidates apply directly via a shareable per-job URL (LinkedIn / outreach emails / careers page). Was previously bulk-upload OR Talent Pool only. Saad's spec; security model triaged with Mansur, four design forks resolved upfront.
+
+- **Schema** (migration `20260509160919_public_application_link`): added `Job.applicationToken` (64-char hex, unique, regenerable), `Job.isLinkActive` (default true, kill-switch), `Job.linkExpiresAt` (optional). Existing jobs backfilled in-migration via `gen_random_bytes(32)`. The pre-existing `applyUrlSlug` is human-readable + enumerable so we kept it for internal references and made the public URL use the high-entropy token instead.
+- **Backend public router** mounted at `/api/v1/public` BEFORE the global `/api/v1/` rate limiter so its own per-IP budgets (60/min GET, 5/hr + 10/day POST) are authoritative. Helmet CSP scoped to the public route blocks iframe embedding (`frame-ancestors:none`) and external scripts.
+- **Submission flow**: `multer single('cv', 5MB cap, memoryStorage)` → honeypot middleware (silent 200 on `hp_website`) → Turnstile middleware (no-op when `TURNSTILE_SECRET_KEY` unset; activates when set) → Zod validate → magic-byte sniff (PDF `%PDF`, DOCX/Office Open XML ZIP `PK\x03\x04`, legacy DOC OLE; rejects renamed executables) → DB dupe check (jobId+email → 409) → AI extract-text (reuses `bulk-upload.ts:66` pattern) → AI parse-cv → **cheap code-only hard-filter** (`lib/cheap-filter.ts`: years_min check + 70% required-skills substring match against parsed `cvStructured.skills` and raw cvText) → Candidate row.
+- **Pass / fail outcomes**: pass → `pipelineStage='applied'`, `entryPath:'public_link'`, async fire-and-forget `score-cv` to AI engine (mirrors `bulk-upload.ts:162` pattern). Fail → `pipelineStage='rejected'`, `hardFilterFailReason` populated, `rejectedFromStage='applied'`, `rejectionReason='auto_filter'`. Auto-rejects NEVER bill Claude — gating decision was deliberate (see fork B in plan).
+- **Privacy**: candidate ALWAYS sees a generic "Application received" 200 response. Pass / fail / dupe are never disclosed to the submitter. Honeypot trip also returns generic 200 so bots don't learn the trap exists.
+- **Recruiter UI** (`frontend/src/app/(dashboard)/jobs/[id]/view/page.tsx`): new gold-bordered "Public Application Link" card on active jobs only. Read-only URL input + Copy / Open / Regenerate buttons + active toggle. Regenerate has a confirm modal warning that existing shared links break instantly. Backed by `POST /jobs/:id/regenerate-application-token` and `PATCH /jobs/:id/link-status`.
+- **Public page** (`frontend/src/app/apply/[token]/`): server component fetches job, client component renders form. Sits OUTSIDE `(dashboard)` group so no sidebar/topbar. Hand-rolled HTML5 dropzone (no extra dep). Hidden honeypot field positioned off-screen with `tabIndex={-1}` + `autoComplete=off`. Turnstile widget conditionally rendered when `NEXT_PUBLIC_TURNSTILE_SITE_KEY` is set. OG `<title>` for LinkedIn share previews.
+- **CV file persistence**: parse-and-discard (matches bulk-upload). Bytes only in memory during request; only the parsed `cvStructured` JSON persists. Real storage (Azure Blob in UAE North) deferred to Phase 7 deploy.
+- **Decisions explicitly NOT taken** (vs spec): no CSRF (no session to forge against; rate-limit + CAPTCHA + honeypot cover the actual threat), no `file-type` package (ESM-only, breaks ts-node — magic-byte sniffer is hand-rolled in `lib/file-validation.ts` instead), no cookie-based "already applied" state (DB is source of truth via 409). All three are documented in the design forks.
+- **E2E verified**: pass-filter submission → Sarah Mitchell at `applied`, async Claude scored 94/100 + `advance` recommendation. Fail-filter submission → `rejected` with "Below minimum experience (need 5y, candidate has 0y)". Dupe → 409. Honeypot → silent 200, no row. Magic-byte mismatch → 400 BAD_FILE, no row. Inactive link → 404. Regenerate → old token 404, new token 200. PATCH link-status → toggle persisted. Frontend `/apply/<token>` returns 200 with proper OG title.
 
 **v1.11.3** (`c51d6da`) — Live CV re-score in TP drawer + flow simplification. Saad's screenshot of Nadia Hussain's drawer surfaced three concrete issues: stale top score (her 83 was from a CLOSED Cloud Architect job; selected "Match for" pointed at the active version of the same title where her score is 66), missing live CV parse against the selected job (we shipped the backend in v1.11.2 but didn't wire it to UI), and the secondary "Add to Pipeline (review first)" button cluttering the single-action flow.
 
