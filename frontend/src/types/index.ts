@@ -117,6 +117,9 @@ export interface Job {
   screeningQuestions: ScreeningQuestion[] | null
   applyUrlSlug: string
   waShortcode: string
+  applicationToken: string
+  isLinkActive: boolean
+  linkExpiresAt: string | null
   status: JobStatus
   closingDate: string | null
   activatedAt: string | null
@@ -126,6 +129,7 @@ export interface Job {
   applicationsCount?: number
   shortlistedCount?: number
   daysOpen?: number
+  applicationUrl?: string  // computed server-side from PUBLIC_APP_URL + applicationToken
 }
 
 export interface ScreeningQuestion {

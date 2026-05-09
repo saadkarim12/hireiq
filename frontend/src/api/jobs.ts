@@ -92,4 +92,15 @@ export const jobsApi = {
     const res = await api.get<JobAnalytics>(`/analytics/jobs/${id}`)
     return res.data.data
   },
+
+  // Public application link controls (v1.12.0)
+  regenerateApplicationToken: async (id: string) => {
+    const res = await api.post<Job>(`/jobs/${id}/regenerate-application-token`)
+    return res.data.data
+  },
+
+  setLinkStatus: async (id: string, payload: { isLinkActive?: boolean; linkExpiresAt?: string | null }) => {
+    const res = await api.patch<Job>(`/jobs/${id}/link-status`, payload)
+    return res.data.data
+  },
 }

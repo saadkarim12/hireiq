@@ -9,7 +9,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeftIcon, BriefcaseIcon, MapPinIcon, BanknotesIcon, ClockIcon, LanguageIcon, CalendarIcon, SparklesIcon, CheckBadgeIcon } from '@heroicons/react/24/outline'
+import { ArrowLeftIcon, BriefcaseIcon, MapPinIcon, BanknotesIcon, ClockIcon, LanguageIcon, CalendarIcon, SparklesIcon, CheckBadgeIcon, LinkIcon, ArrowPathIcon, ClipboardDocumentIcon, ArrowTopRightOnSquareIcon } from '@heroicons/react/24/outline'
 import { format } from 'date-fns'
 import toast from 'react-hot-toast'
 import clsx from 'clsx'
@@ -155,6 +155,11 @@ export default function ViewJobPage({ params }: PageProps) {
           <Tombstone icon={<CalendarIcon className="w-3.5 h-3.5" />} label="Closing"   value={job.closingDate ? format(new Date(job.closingDate), 'd MMM yyyy') : '—'} />
         </div>
       </div>
+
+      {/* Public application link — only meaningful for active jobs */}
+      {job.status === 'active' && (
+        <PublicLinkCard job={job} />
+      )}
 
       {/* Role basics */}
       <Section title="Role Basics" icon={<BriefcaseIcon className="w-4 h-4" />}>
@@ -374,5 +379,144 @@ function ViewJobError({ onBack }: { onBack: () => void }) {
         <button onClick={onBack} className="btn-primary inline-flex">Back to jobs</button>
       </div>
     </div>
+  )
+}
+
+// ── Public application link card (v1.12.0) ───────────────────────────────────
+// Recruiter can copy/open the public /apply/:token URL, toggle it off, or
+// regenerate the token if it leaks. Only rendered for active jobs since the
+// link is meaningless for drafts/archives.
+function PublicLinkCard({ job }: { job: Job }) {
+  const queryClient = useQueryClient()
+  const [confirmRegenerate, setConfirmRegenerate] = useState(false)
+  const url = job.applicationUrl || ''
+
+  const toggleMutation = useMutation({
+    mutationFn: (next: boolean) => jobsApi.setLinkStatus(job.id, { isLinkActive: next }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['job', job.id] })
+      toast.success('Link status updated')
+    },
+    onError: () => toast.error('Failed to update link status'),
+  })
+
+  const regenerateMutation = useMutation({
+    mutationFn: () => jobsApi.regenerateApplicationToken(job.id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['job', job.id] })
+      toast.success('Token regenerated. Old link no longer works.')
+      setConfirmRegenerate(false)
+    },
+    onError: () => {
+      toast.error('Failed to regenerate token')
+      setConfirmRegenerate(false)
+    },
+  })
+
+  const onCopy = async () => {
+    if (!url) return
+    try {
+      await navigator.clipboard.writeText(url)
+      toast.success('Link copied to clipboard')
+    } catch {
+      toast.error('Could not copy. Try selecting the URL.')
+    }
+  }
+
+  return (
+    <>
+      <div className="card p-6 space-y-3 border-l-4 border-l-brand-gold">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <LinkIcon className="w-4 h-4 text-brand-gold" />
+            <h2 className="text-sm font-bold text-brand-navy">Public Application Link</h2>
+            {!job.isLinkActive && (
+              <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-medium">Inactive</span>
+            )}
+          </div>
+          <label className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer">
+            <span>Active</span>
+            <input
+              type="checkbox"
+              checked={job.isLinkActive}
+              disabled={toggleMutation.isPending}
+              onChange={e => toggleMutation.mutate(e.target.checked)}
+              className="w-9 h-5 appearance-none bg-gray-200 rounded-full relative cursor-pointer transition-colors checked:bg-brand-gold disabled:opacity-50
+                before:content-[''] before:absolute before:top-0.5 before:left-0.5 before:w-4 before:h-4 before:bg-white before:rounded-full before:transition-transform
+                checked:before:translate-x-4"
+            />
+          </label>
+        </div>
+
+        <p className="text-xs text-gray-600">
+          Share this link in LinkedIn posts, outreach emails, or your careers page. Candidates apply
+          directly — submissions that pass the hard filters land in your Applied column automatically.
+        </p>
+
+        <div className="flex items-center gap-2">
+          <input
+            readOnly
+            value={url}
+            onFocus={e => e.currentTarget.select()}
+            className="flex-1 text-xs font-mono bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-gray-700"
+          />
+          <button
+            onClick={onCopy}
+            disabled={!url}
+            className="btn-secondary text-xs inline-flex items-center gap-1.5 px-3 py-2 disabled:opacity-50"
+            title="Copy to clipboard"
+          >
+            <ClipboardDocumentIcon className="w-3.5 h-3.5" /> Copy
+          </button>
+          <a
+            href={url || '#'}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={clsx('btn-secondary text-xs inline-flex items-center gap-1.5 px-3 py-2', !url && 'opacity-50 pointer-events-none')}
+            title="Open in new tab"
+          >
+            <ArrowTopRightOnSquareIcon className="w-3.5 h-3.5" /> Open
+          </a>
+          <button
+            onClick={() => setConfirmRegenerate(true)}
+            disabled={regenerateMutation.isPending}
+            className="text-xs inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-red-700 bg-red-50 hover:bg-red-100 disabled:opacity-50"
+            title="Regenerate token (breaks existing links)"
+          >
+            <ArrowPathIcon className="w-3.5 h-3.5" /> Regenerate
+          </button>
+        </div>
+      </div>
+
+      {confirmRegenerate && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-black/50" onClick={() => setConfirmRegenerate(false)} />
+          <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-md p-6 space-y-4">
+            <h3 className="text-base font-bold text-brand-navy">Regenerate application token?</h3>
+            <p className="text-sm text-gray-700">
+              The current link will stop working immediately. Anyone who has it bookmarked or saw
+              it in a LinkedIn post will see "no longer accepting applications". You'll get a new
+              URL to share.
+            </p>
+            <div className="flex gap-2 pt-2">
+              <button
+                onClick={() => setConfirmRegenerate(false)}
+                className="flex-1 btn-secondary text-sm"
+                disabled={regenerateMutation.isPending}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => regenerateMutation.mutate()}
+                disabled={regenerateMutation.isPending}
+                className="flex-1 bg-red-600 hover:bg-red-700 text-white text-sm px-4 py-2 rounded-lg font-medium disabled:opacity-50"
+              >
+                {regenerateMutation.isPending ? 'Regenerating…' : 'Regenerate'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   )
 }
