@@ -100,7 +100,7 @@ jobsRouter.post('/', async (req: AuthRequest, res) => {
   try {
     const { title, hiringCompany, locationCountry, locationCity, jobType, salaryMin, salaryMax, currency,
       requiredSkills, preferredSkills, minExperienceYears, requiredLanguages, jdText, closingDate,
-      allowDuplicate } = req.body
+      allowDuplicate, aiMandatoryFields } = req.body
 
     // 4.3.c — duplicate guard. Prevent accidental creation of another active
     // job with the same (agencyId, title, hiringCompany). Recruiter can force
@@ -157,6 +157,7 @@ jobsRouter.post('/', async (req: AuthRequest, res) => {
         locationCountry,
         requiredSkills,
         minExperienceYears,
+        aiMandatoryFields,
       }, { timeout: 30000 })
 
       const { extractedCriteria, screeningQuestions } = aiRes.data.data
@@ -265,7 +266,13 @@ jobsRouter.get('/:id/candidates', async (req: AuthRequest, res) => {
         ...(stage ? { pipelineStage: stage as any } : {}),
       },
       orderBy: orderBy === 'compositeScore'
-        ? { compositeScore: 'desc' }
+        // Two-key sort: Applied-stage candidates (compositeScore=null) fall
+        // back to cvMatchScore — composite is only populated post-WhatsApp,
+        // so without the fallback the Applied column sorts arbitrarily.
+        ? [
+            { compositeScore: { sort: 'desc', nulls: 'last' } },
+            { cvMatchScore:   { sort: 'desc', nulls: 'last' } },
+          ]
         : { createdAt: 'desc' },
       take,
       ...(cursor ? { skip: 1, cursor: { id: cursor as string } } : {}),

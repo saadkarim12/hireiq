@@ -6,6 +6,15 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { toast } from 'react-hot-toast'
 import { api } from '@/api/client'
+import {
+  COUNTRIES, CITIES_BY_COUNTRY, COUNTRY_TO_CURRENCY,
+  WORK_MODES, EMPLOYMENT_TYPES,
+  VISA_REQUIREMENTS, NATIONALITY_PREFS, IMMEDIATE_JOIN_OPTIONS,
+  GCC_CURRENCIES, INTL_CURRENCIES,
+  AI_RECOMMENDATION_BANDS,
+  QUESTION_CATEGORY_LABELS, QUESTION_CATEGORY_BADGE, type QuestionCategory,
+  BRAND, JD_BUILDER_QUESTIONS,
+} from '@/lib/constants'
 
 // ── SCHEMA ────────────────────────────────────────────────────────────────────
 const schema = z.object({
@@ -28,84 +37,55 @@ const schema = z.object({
   preferredSkills:      z.array(z.string()),
   // Step 2
   jdMode:               z.enum(['builder','paste']),
-  jdQ1:                 z.string().optional(),
-  jdQ2:                 z.string().optional(),
-  jdQ3:                 z.string().optional(),
-  jdQ4:                 z.string().optional(),
-  jdQ5:                 z.string().optional(),
+  jdQ1: z.string().optional(), jdQ2: z.string().optional(), jdQ3: z.string().optional(),
+  jdQ4: z.string().optional(), jdQ5: z.string().optional(),
   jdText:               z.string().optional(),
   generatedJdEn:        z.string().optional(),
   generatedJdAr:        z.string().optional(),
   // Step 3
   mustHaveSkills:       z.array(z.string()),
   niceToHaveSkills:     z.array(z.string()),
-  // Step 4
+  // Step 4 — AI-generated baseline questions. `category` is the new field
+  // that classifies each question into Background Validation / Commitment /
+  // Salary. Backend ai-service guarantees coverage of all three.
   screeningQuestions:   z.array(z.object({
-    id: z.string(),
+    id:             z.string(),
     questionTextEn: z.string(),
     questionTextAr: z.string().optional(),
-    type: z.string(),
-    rationale: z.string().optional(),
+    type:           z.string(),
+    category:       z.enum(['background_validation','commitment','salary']).optional(),
+    rationale:      z.string().optional(),
   })),
-  // Per-field "mandatory for AI" flags — drives the AI Screening Criteria tab.
-  // Marked fields become hard filters during initial CV screening.
-  mandatoryFields: z.object({
-    minExperience:  z.boolean(),
-    minSalary:      z.boolean(),
-    languages:      z.boolean(),
-    visa:           z.boolean(),
-    nationality:    z.boolean(),
-    immediateJoin:  z.boolean(),
-    requiredSkills: z.boolean(),
+  // Per-field "Ask AI to verify in screening" flags. These do NOT create hard
+  // filters — only Min Experience + Required Skills are hard filters, and they
+  // are always on. Toggling a field here tells the AI to generate a baseline
+  // WhatsApp screening question that probes it.
+  aiVerifyFields: z.object({
+    minSalary:     z.boolean(),
+    languages:     z.boolean(),
+    visa:          z.boolean(),
+    nationality:   z.boolean(),
+    immediateJoin: z.boolean(),
   }),
-  // Recruiter-authored hard filters added from the Step 3 dialog. Each filter
-  // becomes a pass/fail check the AI applies during initial CV screening.
-  customHardFilters: z.array(z.object({
-    id:       z.string(),
-    name:     z.string(),
-    criteria: z.string(),
-  })),
 })
 
 type FormData = z.infer<typeof schema>
 
-const CITIES: Record<string, string[]> = {
-  AE: ['Abu Dhabi','Dubai','Sharjah','Ajman','Ras Al Khaimah','Fujairah','Al Ain','Other'],
-  SA: ['Riyadh','Jeddah','Mecca','Medina','Dammam','Khobar','Dhahran','Tabuk','Abha','NEOM','Other'],
-  BH: ['Manama','Riffa','Muharraq','Hamad Town','Other'],
-  KW: ['Kuwait City','Salmiya','Hawalli','Farwaniya','Other'],
-  QA: ['Doha','Al Wakrah','Al Khor','Lusail','Other'],
-  OM: ['Muscat','Salalah','Sohar','Nizwa','Other'],
-}
-
-const CURRENCY_MAP: Record<string,string> = {
-  AE:'AED', SA:'SAR', BH:'BHD', KW:'KWD', QA:'QAR', OM:'OMR'
-}
-
-const COUNTRIES = [
-  { code:'AE', label:'🇦🇪 UAE' },
-  { code:'SA', label:'🇸🇦 Saudi Arabia' },
-  { code:'BH', label:'🇧🇭 Bahrain' },
-  { code:'KW', label:'🇰🇼 Kuwait' },
-  { code:'QA', label:'🇶🇦 Qatar' },
-  { code:'OM', label:'🇴🇲 Oman' },
-]
-
-// ── MANDATORY-FOR-AI TOGGLE ───────────────────────────────────────────────────
-function MandatoryToggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+// ── AI VERIFY TOGGLE ──────────────────────────────────────────────────────────
+function AiVerifyToggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
   return (
     <label
       className="inline-flex items-center gap-1.5 text-xs cursor-pointer select-none"
-      title="When checked, this field is used as a hard filter during AI CV screening">
+      title="When checked, the AI will generate a baseline WhatsApp screening question that probes this field">
       <input
         type="checkbox"
         checked={checked}
         onChange={e => onChange(e.target.checked)}
         className="w-3.5 h-3.5 rounded"
-        style={{ accentColor: '#C9A84C' }}
+        style={{ accentColor: BRAND.GOLD }}
       />
-      <span className="font-medium" style={{ color: checked ? '#C9A84C' : '#9CA3AF' }}>
-        {checked ? '⚡ Mandatory for AI' : 'Mark as mandatory'}
+      <span className="font-medium" style={{ color: checked ? BRAND.GOLD : '#9CA3AF' }}>
+        {checked ? '✨ AI will probe this' : 'Ask AI to verify'}
       </span>
     </label>
   )
@@ -127,19 +107,31 @@ function StepIndicator({ step, total }: { step: number; total: number }) {
                 done   ? 'text-white' :
                 active ? 'text-white' :
                 'bg-gray-100 text-gray-400'
-              }`} style={done ? {background:'#C9A84C'} : active ? {background:'#0A3D2E'} : {}}>
+              }`} style={done ? {background: BRAND.GOLD} : active ? {background: BRAND.GREEN_DARK} : {}}>
                 {done ? '✓' : n}
               </div>
               <span className={`text-xs mt-1 font-medium ${active ? 'text-gray-800' : 'text-gray-400'}`}>{label}</span>
             </div>
             {i < total - 1 && (
               <div className={`w-16 h-0.5 mx-2 mb-5 transition-all ${done ? '' : 'bg-gray-200'}`}
-                style={done ? {background:'#C9A84C'} : {}} />
+                style={done ? {background: BRAND.GOLD} : {}} />
             )}
           </div>
         )
       })}
     </div>
+  )
+}
+
+// ── AI-DRIVEN BADGE ───────────────────────────────────────────────────────────
+function AiDrivenBadge() {
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold"
+      style={{ background: BRAND.GOLD_BG, color: BRAND.GOLD_FG }}
+      title="Every job in HireIQ is screened by AI. Recruiters always make the final advancement decision.">
+      ✨ AI-driven screening
+    </span>
   )
 }
 
@@ -156,7 +148,7 @@ function TagInput({ tags, onChange, placeholder, color }: {
     <div className="border border-gray-200 rounded-xl p-2 flex flex-wrap gap-1.5 focus-within:border-emerald-400 transition-colors min-h-[44px]">
       {tags.map(tag => (
         <span key={tag} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium"
-          style={{ background: color || '#E8F5EE', color: '#0A3D2E' }}>
+          style={{ background: color || BRAND.GREEN_LIGHT, color: BRAND.GREEN_DARK }}>
           {tag}
           <button onClick={() => onChange(tags.filter(t => t !== tag))} className="ml-0.5 opacity-60 hover:opacity-100 text-xs">×</button>
         </span>
@@ -182,13 +174,8 @@ export default function NewJobPage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [showCustomCity, setShowCustomCity] = useState(false)
   const [createdJobId, setCreatedJobId] = useState<string | null>(null)
-  // 4.3.c — duplicate warning state
   const [duplicateWarning, setDuplicateWarning] = useState<{ existing?: { title: string; hiringCompany: string; createdAt: string } } | null>(null)
   const [allowDuplicate, setAllowDuplicate] = useState(false)
-  // Custom Hard Filter dialog state (Step 3)
-  const [showFilterDialog, setShowFilterDialog] = useState(false)
-  const [editingFilterId, setEditingFilterId] = useState<string | null>(null)
-  const [filterDraft, setFilterDraft] = useState({ name: '', criteria: '' })
 
   const { register, watch, setValue, getValues, formState: { errors } } = useForm<FormData>({
     defaultValues: {
@@ -199,16 +186,13 @@ export default function NewJobPage() {
       requiredLanguages: ['English'], requiredSkills: [], preferredSkills: [],
       mustHaveSkills: [], niceToHaveSkills: [],
       jdMode: 'paste', screeningQuestions: [],
-      mandatoryFields: {
-        minExperience:  true,
-        minSalary:      false,
-        languages:      false,
-        visa:           false,
-        nationality:    false,
-        immediateJoin:  false,
-        requiredSkills: true,
+      aiVerifyFields: {
+        minSalary:     false,
+        languages:     false,
+        visa:          false,
+        nationality:   false,
+        immediateJoin: false,
       },
-      customHardFilters: [],
     },
   })
 
@@ -218,8 +202,12 @@ export default function NewJobPage() {
     setValue('locationCountry', country)
     setValue('locationCity', '')
     setShowCustomCity(false)
-    if (CURRENCY_MAP[country]) setValue('currency', CURRENCY_MAP[country] as any)
+    if (COUNTRY_TO_CURRENCY[country]) setValue('currency', COUNTRY_TO_CURRENCY[country] as any)
   }
+
+  // Map aiVerifyFields object → array of keys for backend prompt
+  const computeAiMandatoryFields = (v: FormData): string[] =>
+    Object.entries(v.aiVerifyFields || {}).filter(([, on]) => on).map(([k]) => k)
 
   // ── STEP 2: Generate JD from builder questions ────────────────────────────
   const generateJd = async () => {
@@ -239,7 +227,6 @@ export default function NewJobPage() {
         setValue('jdText', data.data.jdEn)
         toast.success('JD generated!')
       } else {
-        // Fallback: compose from answers
         const fallback = `${title} at ${hiringCompany}\n\nRole Overview:\n${jdQ1}\n\nRequired Experience:\n${jdQ2}${jdQ3 ? '\n\nSuccess in 6 months:\n' + jdQ3 : ''}${jdQ4 ? '\n\nTeam Culture:\n' + jdQ4 : ''}${jdQ5 ? '\n\nIndustry Background:\n' + jdQ5 : ''}\n\nRequired Skills: ${requiredSkills?.join(', ')}`
         setValue('generatedJdEn', fallback)
         setValue('jdText', fallback)
@@ -264,16 +251,7 @@ export default function NewJobPage() {
 
     setIsGeneratingQuestions(true)
     try {
-      // Create job via API
-      const token = (document.querySelector('[data-token]') as any)?.dataset?.token
-      const headers: any = { 'Content-Type': 'application/json' }
-
-      // Translate the per-field "Mandatory for AI" checkboxes into a list of
-      // canonical filter keys the AI engine recognises. Backend treats these
-      // as hard filters during initial CV screening.
-      const mandatoryFilters = Object.entries(v.mandatoryFields || {})
-        .filter(([, on]) => on)
-        .map(([k]) => k)
+      const aiMandatoryFields = computeAiMandatoryFields(v)
 
       const jobRes = await api.post<any>('/jobs', {
         title: v.title, hiringCompany: v.hiringCompany,
@@ -285,8 +263,10 @@ export default function NewJobPage() {
         minExperienceYears: v.minExperienceYears, requiredLanguages: v.requiredLanguages,
         requiredSkills: v.requiredSkills, preferredSkills: v.preferredSkills,
         mustHaveSkills: v.mustHaveSkills, niceToHaveSkills: v.niceToHaveSkills,
-        mandatoryFilters,
-        customHardFilters: v.customHardFilters,
+        // Tells backend's process-jd to generate baseline questions covering
+        // these recruiter-flagged fields, in addition to the three mandatory
+        // categories (background_validation, commitment, salary).
+        aiMandatoryFields,
         jdText,
         allowDuplicate,
       })
@@ -294,7 +274,6 @@ export default function NewJobPage() {
       const jobId = jobRes.data.data.id
       setCreatedJobId(jobId)
 
-      // Poll for questions
       const questions = jobRes.data.data.screeningQuestions || []
       if (questions.length === 0) {
         for (let i = 0; i < 8; i++) {
@@ -311,9 +290,6 @@ export default function NewJobPage() {
 
       setStep(4)
     } catch (err: any) {
-      // Surface the real backend message when present so recruiters can self-serve
-      // (e.g. "Argument `salaryMin` is missing"). Generic fallback only for true
-      // network failures where there's no response at all.
       const backendMsg = err?.response?.data?.error?.message
       toast.error(backendMsg
         ? `Couldn't create job — ${backendMsg}`
@@ -352,13 +328,18 @@ export default function NewJobPage() {
   if (step === 1) return (
     <div className="max-w-4xl mx-auto">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold" style={{color:'#0A3D2E'}}>Post New Job</h1>
-        <p className="text-gray-500 text-sm mt-1">Fill in the details to start screening candidates. Tick <span className="font-medium" style={{color:'#C9A84C'}}>⚡ Mandatory for AI</span> on any field you want enforced as a hard filter during CV screening.</p>
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-bold" style={{color: BRAND.GREEN_DARK}}>Post New Job</h1>
+          <AiDrivenBadge />
+        </div>
+        <p className="text-gray-500 text-sm mt-1">
+          Fill in the details. Tick <span className="font-medium" style={{color: BRAND.GOLD}}>✨ AI will probe this</span> on any field you want the AI to ask the candidate about during WhatsApp screening. <span className="font-medium">Min Experience and Required Skills are always enforced as hard filters</span> — no toggle needed.
+        </p>
       </div>
       <StepIndicator step={1} total={4} />
 
       <div className="bg-white border border-gray-200 rounded-2xl p-8 space-y-6">
-        <h2 className="text-lg font-semibold" style={{color:'#0A3D2E'}}>Role Basics</h2>
+        <h2 className="text-lg font-semibold" style={{color: BRAND.GREEN_DARK}}>Role Basics</h2>
 
         <div className="grid grid-cols-2 gap-4">
           <div>
@@ -400,14 +381,13 @@ export default function NewJobPage() {
           </div>
         </div>
 
-        {/* 4.3.c — Duplicate warning banner */}
         {duplicateWarning?.existing && (
           <div className="rounded-xl p-3 text-sm flex items-start gap-3"
-            style={{ background: '#FEF3C7', borderLeft: '4px solid #C9A84C' }}>
+            style={{ background: '#FEF3C7', borderLeft: '4px solid ' + BRAND.GOLD }}>
             <span className="text-amber-500 text-lg flex-shrink-0">⚠️</span>
             <div className="flex-1">
               <p className="font-medium" style={{ color: '#92400E' }}>
-                An active '{duplicateWarning.existing.title}' at {duplicateWarning.existing.hiringCompany} already exists.
+                An active &lsquo;{duplicateWarning.existing.title}&rsquo; at {duplicateWarning.existing.hiringCompany} already exists.
               </p>
               <p className="text-xs text-amber-800 mt-0.5">
                 Make sure this is a distinct role before continuing. Created on {new Date(duplicateWarning.existing.createdAt).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' })}.
@@ -429,13 +409,13 @@ export default function NewJobPage() {
           </div>
           <div>
             <label className={labelCls}>City *</label>
-            {CITIES[vals.locationCountry] ? (
+            {CITIES_BY_COUNTRY[vals.locationCountry] ? (
               <>
                 <select value={showCustomCity ? 'Other' : vals.locationCity}
                   onChange={e => { if (e.target.value === 'Other') { setShowCustomCity(true); setValue('locationCity','Other') } else { setShowCustomCity(false); setValue('locationCity', e.target.value) } }}
                   className={inputCls}>
                   <option value="">Select city</option>
-                  {CITIES[vals.locationCountry].map(c => <option key={c} value={c}>{c}</option>)}
+                  {CITIES_BY_COUNTRY[vals.locationCountry].map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
                 {showCustomCity && (
                   <input {...register('customCity')} className={inputCls + ' mt-2'} placeholder="Enter city name" autoFocus />
@@ -451,12 +431,12 @@ export default function NewJobPage() {
           <div>
             <label className={labelCls}>Employment Type *</label>
             <div className="flex gap-1.5">
-              {(['permanent','contract','temporary'] as const).map(t => (
+              {EMPLOYMENT_TYPES.map(t => (
                 <label key={t} className="flex-1 cursor-pointer">
                   <input type="radio" {...register('employmentType')} value={t} className="sr-only" />
                   <div className={`text-center py-2 text-xs font-medium rounded-lg border-2 transition-all capitalize ${
                     vals.employmentType === t ? 'border-emerald-600 text-white' : 'border-gray-200 text-gray-500 hover:border-gray-300'
-                  }`} style={vals.employmentType === t ? {background:'#0A3D2E'} : {}}>
+                  }`} style={vals.employmentType === t ? {background: BRAND.GREEN_DARK} : {}}>
                     {t}
                   </div>
                 </label>
@@ -466,12 +446,12 @@ export default function NewJobPage() {
           <div>
             <label className={labelCls}>Work Mode *</label>
             <div className="flex gap-1.5">
-              {(['onsite','hybrid','remote'] as const).map(t => (
+              {WORK_MODES.map(t => (
                 <label key={t} className="flex-1 cursor-pointer">
                   <input type="radio" {...register('jobType')} value={t} className="sr-only" />
                   <div className={`text-center py-2 text-xs font-medium rounded-lg border-2 transition-all capitalize ${
                     vals.jobType === t ? 'border-emerald-600 text-white' : 'border-gray-200 text-gray-500'
-                  }`} style={vals.jobType === t ? {background:'#0A3D2E'} : {}}>
+                  }`} style={vals.jobType === t ? {background: BRAND.GREEN_DARK} : {}}>
                     {t}
                   </div>
                 </label>
@@ -483,10 +463,10 @@ export default function NewJobPage() {
         <div className="grid grid-cols-2 gap-5">
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <label className="text-sm font-medium text-gray-700">Min Experience (years) *</label>
-              <MandatoryToggle
-                checked={vals.mandatoryFields?.minExperience}
-                onChange={v => setValue('mandatoryFields.minExperience', v)} />
+              <label className="text-sm font-medium text-gray-700">
+                Min Experience (years) *
+                <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full font-semibold" style={{background: BRAND.GOLD_BG, color: BRAND.GOLD_FG}}>HARD FILTER</span>
+              </label>
             </div>
             <input type="number" {...register('minExperienceYears', {valueAsNumber:true})} min={0} max={30} className={inputCls} />
           </div>
@@ -494,16 +474,10 @@ export default function NewJobPage() {
             <label className={labelCls}>Currency</label>
             <select {...register('currency')} className={inputCls}>
               <optgroup label="GCC">
-                <option value="AED">🇦🇪 AED</option>
-                <option value="SAR">🇸🇦 SAR</option>
-                <option value="BHD">🇧🇭 BHD</option>
-                <option value="KWD">🇰🇼 KWD</option>
-                <option value="QAR">🇶🇦 QAR</option>
-                <option value="OMR">🇴🇲 OMR</option>
+                {GCC_CURRENCIES.map(c => <option key={c.code} value={c.code}>{c.label}</option>)}
               </optgroup>
               <optgroup label="International">
-                <option value="USD">🇺🇸 USD</option>
-                <option value="GBP">🇬🇧 GBP</option>
+                {INTL_CURRENCIES.map(c => <option key={c.code} value={c.code}>{c.label}</option>)}
               </optgroup>
             </select>
           </div>
@@ -513,9 +487,9 @@ export default function NewJobPage() {
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <label className="text-sm font-medium text-gray-700">Min Salary ({vals.currency}) <span className="text-gray-400 font-normal text-xs">per month</span></label>
-              <MandatoryToggle
-                checked={vals.mandatoryFields?.minSalary}
-                onChange={v => setValue('mandatoryFields.minSalary', v)} />
+              <AiVerifyToggle
+                checked={vals.aiVerifyFields?.minSalary}
+                onChange={v => setValue('aiVerifyFields.minSalary', v)} />
             </div>
             <input type="number" {...register('salaryMin', {valueAsNumber:true})} className={inputCls} placeholder="e.g. 15,000" />
           </div>
@@ -529,17 +503,16 @@ export default function NewJobPage() {
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <label className="text-sm font-medium text-gray-700">Immediate Join</label>
-              <MandatoryToggle
-                checked={vals.mandatoryFields?.immediateJoin}
-                onChange={v => setValue('mandatoryFields.immediateJoin', v)} />
+              <AiVerifyToggle
+                checked={vals.aiVerifyFields?.immediateJoin}
+                onChange={v => setValue('aiVerifyFields.immediateJoin', v)} />
             </div>
             <select {...register('immediateJoin')} className={inputCls}>
-              <option value="any">🌍 Any notice period</option>
-              <option value="immediate">⚡ Immediate (within 1–2 weeks)</option>
-              <option value="30d">📅 30 days notice max</option>
-              <option value="60d">📅 60 days notice max</option>
+              {Object.values(IMMEDIATE_JOIN_OPTIONS).map(o => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
             </select>
-            <p className="text-xs text-gray-400 mt-1">When mandatory, candidates with longer notice are filtered out at CV stage.</p>
+            <p className="text-xs text-gray-400 mt-1">When toggled, AI will ask candidates about their notice period during WhatsApp screening.</p>
           </div>
           <div></div>
         </div>
@@ -548,30 +521,27 @@ export default function NewJobPage() {
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <label className="text-sm font-medium text-gray-700">Visa Requirement</label>
-              <MandatoryToggle
-                checked={vals.mandatoryFields?.visa}
-                onChange={v => setValue('mandatoryFields.visa', v)} />
+              <AiVerifyToggle
+                checked={vals.aiVerifyFields?.visa}
+                onChange={v => setValue('aiVerifyFields.visa', v)} />
             </div>
             <select {...register('visaRequirement')} className={inputCls}>
-              <option value="any">🌍 Open to all visas</option>
-              <option value="residence_visa">📋 Must have residence visa</option>
-              <option value="own_visa">🔖 Own visa / transferable</option>
-              <option value="gcc_national">🏴 GCC Nationals preferred</option>
-              <option value="citizen_only">🇦🇪 Citizens only (Emiratization/Saudization)</option>
+              {Object.values(VISA_REQUIREMENTS).map(o => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
             </select>
           </div>
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <label className="text-sm font-medium text-gray-700">Nationality Preference</label>
-              <MandatoryToggle
-                checked={vals.mandatoryFields?.nationality}
-                onChange={v => setValue('mandatoryFields.nationality', v)} />
+              <AiVerifyToggle
+                checked={vals.aiVerifyFields?.nationality}
+                onChange={v => setValue('aiVerifyFields.nationality', v)} />
             </div>
             <select {...register('nationalityPref')} className={inputCls}>
-              <option value="any">🌍 Any nationality</option>
-              <option value="arab_national">🌙 Arab nationals preferred</option>
-              <option value="gcc_national">🏴 GCC nationals preferred</option>
-              <option value="local_only">🇦🇪 Local nationals only</option>
+              {Object.values(NATIONALITY_PREFS).map(o => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
             </select>
           </div>
         </div>
@@ -579,9 +549,9 @@ export default function NewJobPage() {
         <div>
           <div className="flex items-center justify-between mb-1.5">
             <label className="text-sm font-medium text-gray-700">Languages Required</label>
-            <MandatoryToggle
-              checked={vals.mandatoryFields?.languages}
-              onChange={v => setValue('mandatoryFields.languages', v)} />
+            <AiVerifyToggle
+              checked={vals.aiVerifyFields?.languages}
+              onChange={v => setValue('aiVerifyFields.languages', v)} />
           </div>
           <div className="flex gap-4">
             {['English','Arabic'].map(lang => (
@@ -592,7 +562,7 @@ export default function NewJobPage() {
                     const curr = vals.requiredLanguages || []
                     setValue('requiredLanguages', e.target.checked ? [...curr, lang] : curr.filter(l => l !== lang))
                   }}
-                  className="w-4 h-4 rounded" style={{accentColor:'#0A3D2E'}}
+                  className="w-4 h-4 rounded" style={{accentColor: BRAND.GREEN_DARK}}
                 />
                 <span className="text-sm text-gray-700">{lang}</span>
               </label>
@@ -602,10 +572,10 @@ export default function NewJobPage() {
 
         <div>
           <div className="flex items-center justify-between mb-1.5">
-            <label className="text-sm font-medium text-gray-700">Required Skills *</label>
-            <MandatoryToggle
-              checked={vals.mandatoryFields?.requiredSkills}
-              onChange={v => setValue('mandatoryFields.requiredSkills', v)} />
+            <label className="text-sm font-medium text-gray-700">
+              Required Skills *
+              <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full font-semibold" style={{background: BRAND.GOLD_BG, color: BRAND.GOLD_FG}}>HARD FILTER</span>
+            </label>
           </div>
           <TagInput tags={vals.requiredSkills||[]} onChange={v => setValue('requiredSkills',v)} placeholder="Type a skill and press Enter (e.g. IFRS, SAP, Excel)" />
           {errors.requiredSkills && <p className="text-red-500 text-xs mt-1">Add at least one required skill</p>}
@@ -613,18 +583,18 @@ export default function NewJobPage() {
 
         <div>
           <label className={labelCls}>Preferred Skills <span className="text-gray-400 font-normal text-xs">(optional)</span></label>
-          <TagInput tags={vals.preferredSkills||[]} onChange={v => setValue('preferredSkills',v)} placeholder="Nice-to-have skills (e.g. Power BI, CFA)" color="#FDF6E3" />
+          <TagInput tags={vals.preferredSkills||[]} onChange={v => setValue('preferredSkills',v)} placeholder="Nice-to-have skills (e.g. Power BI, CFA)" color={BRAND.GOLD_BG} />
         </div>
       </div>
 
       <div className="flex justify-end mt-5">
         <button onClick={() => {
           const v = getValues()
-          if (!v.title || !v.hiringCompany || !v.locationCity && !v.customCity) { toast.error('Please fill all required fields'); return }
+          if (!v.title || !v.hiringCompany || (!v.locationCity && !v.customCity)) { toast.error('Please fill all required fields'); return }
           if (!v.requiredSkills?.length) { toast.error('Add at least one required skill'); return }
           setStep(2)
         }} className="px-8 py-2.5 rounded-xl text-sm font-semibold text-white transition-all"
-          style={{background:'#0A3D2E'}}>
+          style={{background: BRAND.GREEN_DARK}}>
           Next: JD Builder →
         </button>
       </div>
@@ -637,23 +607,26 @@ export default function NewJobPage() {
   if (step === 2) return (
     <div className="max-w-4xl mx-auto">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold" style={{color:'#0A3D2E'}}>Post New Job</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-bold" style={{color: BRAND.GREEN_DARK}}>Post New Job</h1>
+          <AiDrivenBadge />
+        </div>
         <p className="text-gray-500 text-sm mt-1">{vals.title} at {vals.hiringCompany}</p>
       </div>
       <StepIndicator step={2} total={4} />
 
       <div className="bg-white border border-gray-200 rounded-2xl p-8">
         <div className="flex items-center justify-between mb-5">
-          <h2 className="text-lg font-semibold" style={{color:'#0A3D2E'}}>Job Description</h2>
+          <h2 className="text-lg font-semibold" style={{color: BRAND.GREEN_DARK}}>Job Description</h2>
           <div className="flex rounded-xl border border-gray-200 overflow-hidden text-xs">
             <button onClick={() => setValue('jdMode','paste')}
               className={`px-4 py-2 font-medium transition-all ${vals.jdMode === 'paste' ? 'text-white' : 'text-gray-500 hover:bg-gray-50'}`}
-              style={vals.jdMode === 'paste' ? {background:'#0A3D2E'} : {}}>
+              style={vals.jdMode === 'paste' ? {background: BRAND.GREEN_DARK} : {}}>
               📋 Paste JD
             </button>
             <button onClick={() => setValue('jdMode','builder')}
               className={`px-4 py-2 font-medium transition-all ${vals.jdMode === 'builder' ? 'text-white' : 'text-gray-500 hover:bg-gray-50'}`}
-              style={vals.jdMode === 'builder' ? {background:'#0A3D2E'} : {}}>
+              style={vals.jdMode === 'builder' ? {background: BRAND.GREEN_DARK} : {}}>
               ✨ AI Builder
             </button>
           </div>
@@ -666,22 +639,16 @@ export default function NewJobPage() {
                 <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-sm text-emerald-800">
                   Answer these 5 questions (takes ~3 minutes). AI will write a full bilingual JD from your answers.
                 </div>
-                {[
-                  { q: 'Q1 — Daily Responsibilities *', placeholder: 'What will this person do every day? e.g. Prepare monthly financial reports, build financial models for project feasibility, liaise with external auditors...', key: 'jdQ1', required: true },
-                  { q: 'Q2 — Essential Experience *', placeholder: 'What experience is non-negotiable? e.g. Minimum 5 years in financial analysis, strong IFRS knowledge, previous experience in real estate or construction...', key: 'jdQ2', required: true },
-                  { q: 'Q3 — Success in 6 Months', placeholder: 'What does a great hire achieve in their first 6 months? e.g. Owns the monthly close process independently, has built relationships with all department heads...', key: 'jdQ3', required: false },
-                  { q: 'Q4 — Team Culture', placeholder: 'Describe the team and working environment. e.g. Small collaborative finance team of 6, fast-paced, direct communication with CFO, hybrid working...', key: 'jdQ4', required: false },
-                  { q: 'Q5 — Industry Background', placeholder: 'Any specific industry required? e.g. Must have GCC real estate experience, banking or financial services preferred, open to any industry...', key: 'jdQ5', required: false },
-                ].map(({ q, placeholder, key, required }) => (
+                {JD_BUILDER_QUESTIONS.map(({ key, label, placeholder }) => (
                   <div key={key}>
-                    <label className={labelCls}>{q}</label>
+                    <label className={labelCls}>{label}</label>
                     <textarea {...register(key as any)} rows={3}
                       className={inputCls + ' resize-none'} placeholder={placeholder} />
                   </div>
                 ))}
                 <button onClick={generateJd} disabled={isGeneratingJd}
                   className="w-full py-3 rounded-xl text-sm font-semibold text-white transition-all flex items-center justify-center gap-2 disabled:opacity-60"
-                  style={{background:'#0A3D2E'}}>
+                  style={{background: BRAND.GREEN_DARK}}>
                   {isGeneratingJd ? (
                     <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Generating JD with AI...</>
                   ) : '✨ Generate JD with AI →'}
@@ -719,7 +686,7 @@ export default function NewJobPage() {
             <div className="flex items-center justify-between mt-1">
               <p className="text-xs text-gray-400">Minimum 100 characters</p>
               <button type="button" onClick={() => setValue('jdMode','builder')}
-                className="text-xs font-medium hover:underline" style={{color:'#0A3D2E'}}>
+                className="text-xs font-medium hover:underline" style={{color: BRAND.GREEN_DARK}}>
                 Don&apos;t have a JD yet? Use AI Builder →
               </button>
             </div>
@@ -737,7 +704,7 @@ export default function NewJobPage() {
           setValue('jdText', jd)
           setStep(3)
         }} className="px-8 py-2.5 rounded-xl text-sm font-semibold text-white"
-          style={{background:'#0A3D2E'}}>
+          style={{background: BRAND.GREEN_DARK}}>
           Next: AI Screening Criteria →
         </button>
       </div>
@@ -745,209 +712,149 @@ export default function NewJobPage() {
   )
 
   // ─────────────────────────────────────────────────────────────────────────
-  // STEP 3: AI SCREENING CRITERIA — only fields marked Mandatory in Step 1
+  // STEP 3: AI SCREENING CRITERIA — locked hard filters + AI-verify summary
   // ─────────────────────────────────────────────────────────────────────────
   if (step === 3) {
-    const mf = vals.mandatoryFields || ({} as any)
-    const VISA_LABEL: Record<string,string> = {
-      any: 'Open to all visas',
-      residence_visa: 'Must have residence visa',
-      own_visa: 'Own visa / transferable',
-      gcc_national: 'GCC Nationals preferred',
-      citizen_only: 'Citizens only (Emiratization/Saudization)',
-    }
-    const NAT_LABEL: Record<string,string> = {
-      any: 'Any nationality',
-      arab_national: 'Arab nationals preferred',
-      gcc_national: 'GCC nationals preferred',
-      local_only: 'Local nationals only',
-    }
-    const mandatoryRows: { key: string; title: string; hint: string; render: () => any }[] = []
-    if (mf.minExperience) mandatoryRows.push({
-      key: 'minExperience',
-      title: 'Minimum experience',
-      hint: 'Candidates below this are rejected before scoring',
-      render: () => <span className="text-sm font-bold" style={{color:'#0A3D2E'}}>{vals.minExperienceYears} years</span>,
+    const aiVerifyRows: { key: string; title: string; value: any }[] = []
+    if (vals.aiVerifyFields?.minSalary) aiVerifyRows.push({
+      key: 'minSalary', title: 'Min Salary',
+      value: `${vals.salaryMin?.toLocaleString()} ${vals.currency} / month`,
     })
-    if (mf.minSalary) mandatoryRows.push({
-      key: 'minSalary',
-      title: 'Minimum salary',
-      hint: 'Candidates expecting below this band are flagged',
-      render: () => <span className="text-sm font-bold" style={{color:'#0A3D2E'}}>{vals.salaryMin?.toLocaleString()} {vals.currency} / month</span>,
+    if (vals.aiVerifyFields?.languages) aiVerifyRows.push({
+      key: 'languages', title: 'Languages',
+      value: (vals.requiredLanguages || []).join(' + '),
     })
-    if (mf.languages) mandatoryRows.push({
-      key: 'languages',
-      title: 'Languages required',
-      hint: 'CV must evidence fluency in every selected language',
-      render: () => (
-        <div className="flex flex-wrap gap-1.5 justify-end">
-          {(vals.requiredLanguages||[]).map(l => (
-            <span key={l} className="px-2.5 py-1 rounded-lg text-xs font-medium" style={{background:'#E8F5EE',color:'#0A3D2E'}}>{l}</span>
-          ))}
-        </div>
-      ),
+    if (vals.aiVerifyFields?.visa) aiVerifyRows.push({
+      key: 'visa', title: 'Visa requirement',
+      value: VISA_REQUIREMENTS[vals.visaRequirement]?.label,
     })
-    if (mf.visa) mandatoryRows.push({
-      key: 'visa',
-      title: 'Visa requirement',
-      hint: 'Applied to every applicant',
-      render: () => <span className="text-sm text-gray-700">{VISA_LABEL[vals.visaRequirement]}</span>,
+    if (vals.aiVerifyFields?.nationality) aiVerifyRows.push({
+      key: 'nationality', title: 'Nationality preference',
+      value: NATIONALITY_PREFS[vals.nationalityPref]?.label,
     })
-    if (mf.nationality) mandatoryRows.push({
-      key: 'nationality',
-      title: 'Nationality preference',
-      hint: 'Used to filter CVs at intake',
-      render: () => <span className="text-sm text-gray-700">{NAT_LABEL[vals.nationalityPref]}</span>,
-    })
-    if (mf.immediateJoin) {
-      const JOIN_LABEL: Record<string,string> = {
-        any: 'Any notice period',
-        immediate: 'Immediate (within 1–2 weeks)',
-        '30d': '30 days notice max',
-        '60d': '60 days notice max',
-      }
-      mandatoryRows.push({
-        key: 'immediateJoin',
-        title: 'Immediate join',
-        hint: 'Candidates with longer notice are filtered out at CV stage',
-        render: () => <span className="text-sm text-gray-700">{JOIN_LABEL[vals.immediateJoin]}</span>,
-      })
-    }
-    if (mf.requiredSkills) mandatoryRows.push({
-      key: 'requiredSkills',
-      title: 'Required skills',
-      hint: 'Missing any of these = automatic rejection',
-      render: () => (
-        <div className="flex flex-wrap gap-1.5 justify-end max-w-md">
-          {(vals.requiredSkills||[]).map(s => (
-            <span key={s} className="px-2.5 py-1 rounded-lg text-xs font-medium" style={{background:'#FEE2E2',color:'#991B1B'}}>✗ {s}</span>
-          ))}
-        </div>
-      ),
+    if (vals.aiVerifyFields?.immediateJoin) aiVerifyRows.push({
+      key: 'immediateJoin', title: 'Immediate join',
+      value: IMMEDIATE_JOIN_OPTIONS[vals.immediateJoin]?.label,
     })
 
     return (
       <div className="max-w-4xl mx-auto">
         <div className="mb-6">
-          <h1 className="text-2xl font-bold" style={{color:"#0A3D2E"}}>Post New Job</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-bold" style={{color: BRAND.GREEN_DARK}}>Post New Job</h1>
+            <AiDrivenBadge />
+          </div>
           <p className="text-gray-500 text-sm mt-1">{vals.title} at {vals.hiringCompany}</p>
         </div>
         <StepIndicator step={3} total={4} />
+
         <div className="bg-white border border-gray-200 rounded-2xl p-8 space-y-6">
           <div>
-            <h2 className="text-lg font-semibold" style={{color:"#0A3D2E"}}>AI Screening Criteria</h2>
+            <h2 className="text-lg font-semibold" style={{color: BRAND.GREEN_DARK}}>AI Screening Criteria</h2>
             <p className="text-sm text-gray-500 mt-1">
-              Only fields you marked as <span className="font-medium" style={{color:'#C9A84C'}}>⚡ Mandatory for AI</span> in Step 1 are shown here. These become hard filters during initial CV screening — to change what AI enforces, edit Step 1.
+              Two locked hard filters apply to every CV. Anything else flagged in Step 1 becomes a WhatsApp screening question, not a filter.
             </p>
           </div>
 
+          {/* Locked hard filters — Experience + Required Skills only */}
           <div className="border border-gray-200 rounded-xl overflow-hidden">
             <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2" style={{background:"#F9FAFB"}}>
-              <span className="text-sm font-semibold text-gray-700">Hard Filters for AI CV Screening</span>
-              <span className="text-xs px-2 py-0.5 rounded-full font-medium ml-auto" style={{background:'#FDF6E3',color:'#8B6F1A'}}>
-                {mandatoryRows.length + (vals.customHardFilters?.length || 0)} active
+              <span className="text-sm font-semibold text-gray-700">Hard Filters (always enforced)</span>
+              <span className="text-xs px-2 py-0.5 rounded-full font-medium ml-auto" style={{background: BRAND.GOLD_BG, color: BRAND.GOLD_FG}}>
+                2 active
               </span>
             </div>
-            <div className="p-4">
-              {mandatoryRows.length === 0 && (vals.customHardFilters?.length || 0) === 0 ? (
-                <div className="py-8 text-center">
-                  <div className="text-3xl mb-2">⚡</div>
-                  <p className="text-sm font-medium text-gray-700">No mandatory fields yet</p>
-                  <p className="text-xs text-gray-500 mt-1">AI will use the full JD for soft scoring only. To enforce hard filters, mark fields as mandatory in Step 1 or add a custom filter below.</p>
-                  <button onClick={() => setStep(1)} className="mt-3 text-xs font-medium underline" style={{color:'#0A3D2E'}}>← Back to Step 1</button>
+            <div className="p-4 space-y-1">
+              <div className="flex items-start justify-between gap-4 py-3 border-b border-gray-50">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-medium text-gray-700">Minimum experience</p>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold" style={{background: BRAND.GOLD_BG, color: BRAND.GOLD_FG}}>HARD FILTER</span>
+                  </div>
+                  <p className="text-xs text-gray-400 mt-0.5">Candidates below this are rejected before scoring</p>
                 </div>
-              ) : (
-                <div className="space-y-1">
-                  {mandatoryRows.map((row, i) => (
-                    <div key={row.key}
-                      className={`flex items-start justify-between gap-4 py-3 ${(i < mandatoryRows.length - 1) || (vals.customHardFilters?.length || 0) > 0 ? 'border-b border-gray-50' : ''}`}>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className="text-sm font-medium text-gray-700">{row.title}</p>
-                          <span className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold" style={{background:'#FDF6E3',color:'#8B6F1A'}}>⚡ MANDATORY</span>
-                        </div>
-                        <p className="text-xs text-gray-400 mt-0.5">{row.hint}</p>
-                      </div>
-                      <div className="flex items-start gap-3 flex-shrink-0">
-                        {row.render()}
-                        <button onClick={() => setStep(1)} className="text-xs text-blue-500 underline whitespace-nowrap">Edit</button>
-                      </div>
-                    </div>
-                  ))}
-                  {(vals.customHardFilters || []).map((f, i, arr) => (
-                    <div key={f.id}
-                      className={`flex items-start justify-between gap-4 py-3 ${i < arr.length - 1 ? 'border-b border-gray-50' : ''}`}>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <p className="text-sm font-medium text-gray-700">{f.name}</p>
-                          <span className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold" style={{background:'#FDF6E3',color:'#8B6F1A'}}>⚡ MANDATORY</span>
-                          <span className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold" style={{background:'#E0E7FF',color:'#3730A3'}}>CUSTOM</span>
-                        </div>
-                        <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{f.criteria}</p>
-                      </div>
-                      <div className="flex items-start gap-3 flex-shrink-0">
-                        <button
-                          onClick={() => {
-                            setEditingFilterId(f.id)
-                            setFilterDraft({ name: f.name, criteria: f.criteria })
-                            setShowFilterDialog(true)
-                          }}
-                          className="text-xs text-blue-500 underline whitespace-nowrap">Edit</button>
-                        <button
-                          onClick={() => setValue('customHardFilters', (vals.customHardFilters || []).filter(x => x.id !== f.id))}
-                          className="text-xs text-red-500 underline whitespace-nowrap">Remove</button>
-                      </div>
-                    </div>
-                  ))}
+                <div className="flex items-start gap-3 flex-shrink-0">
+                  <span className="text-sm font-bold" style={{color: BRAND.GREEN_DARK}}>{vals.minExperienceYears} years</span>
+                  <button onClick={() => setStep(1)} className="text-xs text-blue-500 underline whitespace-nowrap">Edit</button>
                 </div>
-              )}
+              </div>
+              <div className="flex items-start justify-between gap-4 py-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-medium text-gray-700">Required skills</p>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold" style={{background: BRAND.GOLD_BG, color: BRAND.GOLD_FG}}>HARD FILTER</span>
+                  </div>
+                  <p className="text-xs text-gray-400 mt-0.5">Missing any of these = automatic rejection</p>
+                </div>
+                <div className="flex items-start gap-3 flex-shrink-0">
+                  <div className="flex flex-wrap gap-1.5 justify-end max-w-md">
+                    {(vals.requiredSkills || []).map(s => (
+                      <span key={s} className="px-2.5 py-1 rounded-lg text-xs font-medium" style={{background:'#FEE2E2',color:'#991B1B'}}>✗ {s}</span>
+                    ))}
+                  </div>
+                  <button onClick={() => setStep(1)} className="text-xs text-blue-500 underline whitespace-nowrap">Edit</button>
+                </div>
+              </div>
             </div>
-            <div className="px-4 py-3 border-t border-gray-100" style={{background:'#F9FAFB'}}>
-              <button
-                type="button"
-                onClick={() => {
-                  setEditingFilterId(null)
-                  setFilterDraft({ name: '', criteria: '' })
-                  setShowFilterDialog(true)
-                }}
-                className="w-full border-2 border-dashed border-gray-200 rounded-lg py-2.5 text-sm font-medium text-gray-500 hover:border-emerald-400 hover:text-emerald-700 transition-colors">
-                + Add Custom Hard Filter
-              </button>
-              <p className="text-xs text-gray-400 mt-2 text-center">
-                Custom filters let you enforce checks not covered by Step 1 — e.g. "must have a UAE driving licence" or "ACCA-qualified only".
-              </p>
+            <div className="px-4 py-2.5 border-t border-gray-100 text-xs text-gray-500" style={{background:'#F9FAFB'}}>
+              These are the only hard filters HireIQ applies. To enforce additional traits, set the Hiring Manager&rsquo;s expectations in the JD — the AI uses the JD for soft scoring.
             </div>
           </div>
 
+          {/* AI-verify (drives baseline question generation) */}
+          {aiVerifyRows.length > 0 && (
+            <div className="border border-gray-200 rounded-xl overflow-hidden">
+              <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2" style={{background:"#F9FAFB"}}>
+                <span className="text-sm font-semibold text-gray-700">AI will probe in WhatsApp screening</span>
+                <span className="text-xs px-2 py-0.5 rounded-full font-medium ml-auto" style={{background: BRAND.GOLD_BG, color: BRAND.GOLD_FG}}>
+                  {aiVerifyRows.length} field{aiVerifyRows.length === 1 ? '' : 's'}
+                </span>
+              </div>
+              <div className="p-4 space-y-1">
+                {aiVerifyRows.map((row, i) => (
+                  <div key={row.key}
+                    className={`flex items-start justify-between gap-4 py-2.5 ${i < aiVerifyRows.length - 1 ? 'border-b border-gray-50' : ''}`}>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-700">{row.title}</p>
+                    </div>
+                    <div className="flex items-start gap-3 flex-shrink-0">
+                      <span className="text-sm text-gray-700">{row.value}</span>
+                      <button onClick={() => setStep(1)} className="text-xs text-blue-500 underline whitespace-nowrap">Edit</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="px-4 py-2.5 border-t border-gray-100 text-xs text-gray-500" style={{background:'#F9FAFB'}}>
+                ✨ The AI will generate a baseline question covering each of these in addition to Background Validation, Commitment, and Salary Expectations.
+              </div>
+            </div>
+          )}
+
+          {/* AI Recommendation Bands legend (read-only) */}
           <div>
             <div className="flex items-center gap-2 mb-4">
               <h3 className="text-sm font-semibold text-gray-700">AI Recommendation Bands</h3>
               <span className="text-xs text-gray-400">how the AI flags candidates for your review</span>
             </div>
             <div className="grid grid-cols-3 gap-3">
-              <div className="rounded-xl p-4 text-center border-2" style={{background:"#F0FDF4",borderColor:"#BBF7D0"}}>
-                <div className="text-xs font-medium mb-2" style={{color:"#166534"}}>Score ≥ 75</div>
-                <div className="text-2xl">✅</div>
-                <div className="text-xs font-semibold mt-2" style={{color:"#166534"}}>AI: Advance</div>
-                <div className="text-xs text-gray-500 mt-1">Strong match for this role</div>
-              </div>
-              <div className="rounded-xl p-4 text-center border-2" style={{background:"#FFFBEB",borderColor:"#FDE68A"}}>
-                <div className="text-xs font-medium mb-2" style={{color:"#92400E"}}>Score 55–74</div>
-                <div className="text-2xl">⚠️</div>
-                <div className="text-xs font-semibold mt-2" style={{color:"#92400E"}}>AI: Hold</div>
-                <div className="text-xs text-gray-500 mt-1">Borderline — review carefully</div>
-              </div>
-              <div className="rounded-xl p-4 text-center border-2" style={{background:"#FFF1F2",borderColor:"#FECDD3"}}>
-                <div className="text-xs font-medium mb-2" style={{color:"#991B1B"}}>Score &lt; 55</div>
-                <div className="text-2xl">❌</div>
-                <div className="text-xs font-semibold mt-2" style={{color:"#991B1B"}}>AI: Reject</div>
-                <div className="text-xs text-gray-500 mt-1">Weak match for this role</div>
-              </div>
+              {AI_RECOMMENDATION_BANDS.map(band => (
+                <div key={band.verdict} className="rounded-xl p-4 text-center border-2"
+                  style={{background: band.bg, borderColor: band.border}}>
+                  <div className="text-xs font-medium mb-2" style={{color: band.fg}}>
+                    {band.verdict === 'advance' ? `Score ≥ ${band.min}`
+                     : band.verdict === 'hold' ? `Score ${band.min}–74`
+                     : `Score < 55`}
+                  </div>
+                  <div className="text-2xl">{band.emoji}</div>
+                  <div className="text-xs font-semibold mt-2" style={{color: band.fg}}>{band.label}</div>
+                  <div className="text-xs text-gray-500 mt-1">{band.tagline}</div>
+                </div>
+              ))}
             </div>
           </div>
 
-          <div className="rounded-xl p-4 text-sm" style={{background:"#E8F5EE"}}>
-            <p className="font-medium mb-1" style={{color:"#0A3D2E"}}>How this works in your hiring:</p>
+          <div className="rounded-xl p-4 text-sm" style={{background: BRAND.GREEN_LIGHT}}>
+            <p className="font-medium mb-1" style={{color: BRAND.GREEN_DARK}}>How this works in your hiring:</p>
             <p style={{color:"#0F6E56"}}>These bands are system-wide. AI recommendations are advisory — recruiters make all advancement decisions. You&apos;ll see the AI&apos;s band on every candidate card; you Approve, Hold, or Reject from there.</p>
           </div>
         </div>
@@ -955,93 +862,24 @@ export default function NewJobPage() {
         <div className="flex justify-between mt-5">
           <button onClick={() => setStep(2)} className="px-6 py-2.5 rounded-xl text-sm font-medium border border-gray-200 text-gray-600 hover:bg-gray-50">← Back</button>
           <button onClick={createJobAndGenerateQuestions} disabled={isGeneratingQuestions}
-            className="px-8 py-2.5 rounded-xl text-sm font-semibold text-white flex items-center gap-2 disabled:opacity-60" style={{background:"#0A3D2E"}}>
+            className="px-8 py-2.5 rounded-xl text-sm font-semibold text-white flex items-center gap-2 disabled:opacity-60" style={{background: BRAND.GREEN_DARK}}>
             {isGeneratingQuestions ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/>Creating job...</> : "Next: Baseline Questions →"}
           </button>
         </div>
-
-        {showFilterDialog && (
-          <>
-            <div className="fixed inset-0 bg-black/50 z-40" onClick={() => setShowFilterDialog(false)} />
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none">
-              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg pointer-events-auto" onClick={e => e.stopPropagation()}>
-                <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-2">
-                  <h3 className="text-base font-semibold" style={{color:'#0A3D2E'}}>
-                    {editingFilterId ? 'Edit Custom Hard Filter' : 'Add Custom Hard Filter'}
-                  </h3>
-                  <button onClick={() => setShowFilterDialog(false)} className="ml-auto text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
-                </div>
-                <div className="px-6 py-5 space-y-4">
-                  <div>
-                    <label className={labelCls}>Filter name *</label>
-                    <input
-                      value={filterDraft.name}
-                      onChange={e => setFilterDraft(d => ({ ...d, name: e.target.value }))}
-                      placeholder="e.g. UAE driving licence"
-                      className={inputCls}
-                      autoFocus
-                    />
-                    <p className="text-xs text-gray-400 mt-1">Short label shown on the candidate card if rejected.</p>
-                  </div>
-                  <div>
-                    <label className={labelCls}>What should AI check for in the CV? *</label>
-                    <textarea
-                      value={filterDraft.criteria}
-                      onChange={e => setFilterDraft(d => ({ ...d, criteria: e.target.value }))}
-                      rows={4}
-                      placeholder="e.g. CV must mention a valid UAE driving licence. Reject if the licence is from another country, expired, or absent."
-                      className={inputCls + ' resize-none'}
-                    />
-                    <p className="text-xs text-gray-400 mt-1">Be specific. AI will pass/fail every CV against this criterion.</p>
-                  </div>
-                  <div className="rounded-lg p-3 text-xs flex items-start gap-2" style={{background:'#FEF3C7'}}>
-                    <span style={{color:'#92400E'}}>⚠️</span>
-                    <p style={{color:'#92400E'}}>Custom hard filters reject candidates outright. Add only if missing this trait makes the CV genuinely unscoreable for the role.</p>
-                  </div>
-                </div>
-                <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-2">
-                  <button
-                    onClick={() => setShowFilterDialog(false)}
-                    className="px-4 py-2 rounded-lg text-sm font-medium border border-gray-200 text-gray-600 hover:bg-gray-50">
-                    Cancel
-                  </button>
-                  <button
-                    onClick={() => {
-                      const name = filterDraft.name.trim()
-                      const criteria = filterDraft.criteria.trim()
-                      if (!name || criteria.length < 10) {
-                        toast.error('Add a filter name and at least 10 characters of criteria')
-                        return
-                      }
-                      const list = vals.customHardFilters || []
-                      if (editingFilterId) {
-                        setValue('customHardFilters', list.map(f => f.id === editingFilterId ? { ...f, name, criteria } : f))
-                      } else {
-                        setValue('customHardFilters', [...list, { id: `cf-${Date.now()}`, name, criteria }])
-                      }
-                      setShowFilterDialog(false)
-                      setEditingFilterId(null)
-                      setFilterDraft({ name: '', criteria: '' })
-                    }}
-                    className="px-5 py-2 rounded-lg text-sm font-semibold text-white"
-                    style={{background:'#0A3D2E'}}>
-                    {editingFilterId ? 'Save changes' : 'Add filter'}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </>
-        )}
       </div>
     )
   }
 
+  // ─────────────────────────────────────────────────────────────────────────
   // STEP 4: BASELINE QUESTIONS
   // ─────────────────────────────────────────────────────────────────────────
   return (
     <div className="max-w-4xl mx-auto">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold" style={{color:'#0A3D2E'}}>Post New Job</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-bold" style={{color: BRAND.GREEN_DARK}}>Post New Job</h1>
+          <AiDrivenBadge />
+        </div>
         <p className="text-gray-500 text-sm mt-1">{vals.title} at {vals.hiringCompany}</p>
       </div>
       <StepIndicator step={4} total={4} />
@@ -1049,15 +887,15 @@ export default function NewJobPage() {
       <div className="bg-white border border-gray-200 rounded-2xl p-8 space-y-5">
         <div>
           <div className="flex items-center gap-2">
-            <h2 className="text-lg font-semibold" style={{color:'#0A3D2E'}}>Baseline Screening Questions</h2>
+            <h2 className="text-lg font-semibold" style={{color: BRAND.GREEN_DARK}}>Baseline Screening Questions</h2>
             {vals.screeningQuestions?.length > 0 && (
-              <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{background:'#E8F5EE', color:'#0A3D2E'}}>
+              <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{background: BRAND.GREEN_LIGHT, color: BRAND.GREEN_DARK}}>
                 ✨ AI Generated
               </span>
             )}
           </div>
           <p className="text-sm text-gray-500 mt-1">
-            These questions are sent to every candidate via WhatsApp after CV approval. Edit or add your own.
+            Sent to every candidate via WhatsApp after CV approval. AI guarantees coverage of <span className="font-medium">{Object.values(QUESTION_CATEGORY_LABELS).join(', ')}</span>. Edit or add your own.
           </p>
         </div>
 
@@ -1068,38 +906,47 @@ export default function NewJobPage() {
           </div>
         ) : (
           <div className="space-y-3">
-            {vals.screeningQuestions?.map((q, i) => (
-              <div key={q.id || i} className="border border-gray-200 rounded-xl p-4">
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="w-6 h-6 rounded-full text-xs font-bold flex items-center justify-center text-white"
-                    style={{background:'#0A3D2E'}}>{i + 1}</span>
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 capitalize">{q.type}</span>
-                  <button onClick={() => setValue('screeningQuestions', vals.screeningQuestions!.filter((_, j) => j !== i))}
-                    className="ml-auto text-gray-300 hover:text-red-400 transition-colors text-lg">×</button>
+            {vals.screeningQuestions?.map((q, i) => {
+              const cat = q.category as QuestionCategory | undefined
+              const catBadge = cat && QUESTION_CATEGORY_BADGE[cat]
+              const catLabel = cat && QUESTION_CATEGORY_LABELS[cat]
+              return (
+                <div key={q.id || i} className="border border-gray-200 rounded-xl p-4">
+                  <div className="flex items-center gap-2 mb-2 flex-wrap">
+                    <span className="w-6 h-6 rounded-full text-xs font-bold flex items-center justify-center text-white"
+                      style={{background: BRAND.GREEN_DARK}}>{i + 1}</span>
+                    {catLabel && (
+                      <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{background: catBadge!.bg, color: catBadge!.fg}}>
+                        {catLabel}
+                      </span>
+                    )}
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 capitalize">{q.type}</span>
+                    <button onClick={() => setValue('screeningQuestions', vals.screeningQuestions!.filter((_, j) => j !== i))}
+                      className="ml-auto text-gray-300 hover:text-red-400 transition-colors text-lg">×</button>
+                  </div>
+                  <textarea
+                    value={q.questionTextEn}
+                    onChange={e => {
+                      const updated = [...vals.screeningQuestions!]
+                      updated[i] = { ...updated[i], questionTextEn: e.target.value }
+                      setValue('screeningQuestions', updated)
+                    }}
+                    rows={2}
+                    className="w-full text-sm text-gray-800 bg-transparent resize-none outline-none border-b border-gray-100 focus:border-emerald-300 transition-colors pb-1"
+                  />
+                  {q.questionTextAr && (
+                    <details className="mt-2">
+                      <summary className="text-xs text-gray-400 cursor-pointer hover:text-gray-600">Show Arabic version</summary>
+                      <p className="text-sm text-gray-600 mt-1.5 p-2 bg-gray-50 rounded text-right" dir="rtl">{q.questionTextAr}</p>
+                    </details>
+                  )}
+                  {q.rationale && <p className="text-xs text-gray-400 mt-1.5 italic">💡 {q.rationale}</p>}
                 </div>
-                <textarea
-                  value={q.questionTextEn}
-                  onChange={e => {
-                    const updated = [...vals.screeningQuestions!]
-                    updated[i] = { ...updated[i], questionTextEn: e.target.value }
-                    setValue('screeningQuestions', updated)
-                  }}
-                  rows={2}
-                  className="w-full text-sm text-gray-800 bg-transparent resize-none outline-none border-b border-gray-100 focus:border-emerald-300 transition-colors pb-1"
-                />
-                {q.questionTextAr && (
-                  <details className="mt-2">
-                    <summary className="text-xs text-gray-400 cursor-pointer hover:text-gray-600">Show Arabic version</summary>
-                    <p className="text-sm text-gray-600 mt-1.5 p-2 bg-gray-50 rounded text-right" dir="rtl">{q.questionTextAr}</p>
-                  </details>
-                )}
-                {q.rationale && <p className="text-xs text-gray-400 mt-1.5 italic">💡 {q.rationale}</p>}
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
 
-        {/* 2.6.a — Recruiter-authored custom question */}
         {vals.screeningQuestions?.length > 0 && (
           <div>
             <button type="button"
@@ -1107,6 +954,7 @@ export default function NewJobPage() {
                 const newQ = {
                   id: `custom-${Date.now()}`,
                   type: 'skill_probe' as const,
+                  category: 'background_validation' as const,
                   questionTextEn: '',
                   questionTextAr: '',
                   rationale: 'Custom question added by recruiter',
@@ -1122,9 +970,8 @@ export default function NewJobPage() {
           </div>
         )}
 
-        {/* What happens on activate */}
         <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 space-y-1.5">
-          <p className="text-sm font-medium" style={{color:'#0A3D2E'}}>What happens when you activate:</p>
+          <p className="text-sm font-medium" style={{color: BRAND.GREEN_DARK}}>What happens when you activate:</p>
           {[
             'A unique Apply link is generated for sharing on your website and LinkedIn',
             'Candidates who apply will have their CV screened instantly by AI',
@@ -1149,7 +996,7 @@ export default function NewJobPage() {
           </button>
           <button onClick={activateJob} disabled={isSubmitting || !createdJobId}
             className="px-8 py-2.5 rounded-xl text-sm font-semibold text-white transition-all flex items-center gap-2 disabled:opacity-60"
-            style={{background:'#0A3D2E'}}>
+            style={{background: BRAND.GREEN_DARK}}>
             {isSubmitting ? (
               <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Activating...</>
             ) : '🚀 Activate Job'}

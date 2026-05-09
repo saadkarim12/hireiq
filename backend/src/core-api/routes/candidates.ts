@@ -33,7 +33,12 @@ candidatesRouter.get('/', async (req: AuthRequest, res) => {
           ]
         } : {}),
       },
-      orderBy: { compositeScore: 'desc' },
+      // Two-key sort so Applied-stage candidates (compositeScore=null) fall
+      // back to cvMatchScore — composite is only populated post-WhatsApp.
+      orderBy: [
+        { compositeScore: { sort: 'desc', nulls: 'last' } },
+        { cvMatchScore:   { sort: 'desc', nulls: 'last' } },
+      ],
       take,
       ...(cursor ? { skip: 1, cursor: { id: cursor as string } } : {}),
     })

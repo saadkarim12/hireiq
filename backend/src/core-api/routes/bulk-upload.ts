@@ -165,7 +165,10 @@ bulkUploadRouter.get('/talent-pool/search', async (req: AuthRequest, res: Respon
         ...(source ? { sourceChannel: source as string } : {}),
         ...(minScore && parseInt(minScore as string) > 0 ? { compositeScore: { gte: parseInt(minScore as string) } } : {}),
       },
-      orderBy: { compositeScore: 'desc' },
+      orderBy: [
+        { compositeScore: { sort: 'desc', nulls: 'last' } },
+        { cvMatchScore:   { sort: 'desc', nulls: 'last' } },
+      ],
       take: 200,  // fetch more; dedupe may shrink the set
     })
 
@@ -228,7 +231,10 @@ bulkUploadRouter.get('/jobs/:jobId/talent-matches', async (req: AuthRequest, res
           ]},
         ],
       },
-      orderBy: { compositeScore: 'desc' },
+      orderBy: [
+        { compositeScore: { sort: 'desc', nulls: 'last' } },
+        { cvMatchScore:   { sort: 'desc', nulls: 'last' } },
+      ],
       take: 100,
     })
 
