@@ -192,6 +192,94 @@ jobsRouter.post('/', async (req: AuthRequest, res) => {
   }
 })
 
+// ── UPDATE JOB (full edit) ────────────────────────────────────────────────────
+// Accepts the same payload shape as POST /jobs minus the slug/shortcode (which
+// are immutable). Re-runs AI process-jd only when jdText changes — otherwise
+// existing extractedCriteria + screeningQuestions are preserved as-is.
+// Archived jobs are read-only and rejected up-front.
+jobsRouter.patch('/:id', async (req: AuthRequest, res) => {
+  try {
+    const job = await prisma.job.findFirst({
+      where: { id: req.params.id, agencyId: req.user!.agencyId },
+    })
+    if (!job) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Job not found' } })
+    if (job.status === 'archived') {
+      return res.status(409).json({ success: false, error: { code: 'JOB_ARCHIVED', message: 'Archived jobs are read-only. Unarchive first to edit.' } })
+    }
+
+    const {
+      title, hiringCompany, locationCountry, locationCity, jobType,
+      salaryMin, salaryMax, currency,
+      requiredSkills, preferredSkills, minExperienceYears, requiredLanguages,
+      jdText, closingDate, screeningQuestions, aiMandatoryFields,
+    } = req.body
+
+    const jdChanged = typeof jdText === 'string' && jdText !== job.jdText
+    const updateData: any = {
+      ...(title !== undefined            ? { title } : {}),
+      ...(hiringCompany !== undefined    ? { hiringCompany } : {}),
+      ...(locationCountry !== undefined  ? { locationCountry } : {}),
+      ...(locationCity !== undefined     ? { locationCity } : {}),
+      ...(jobType !== undefined          ? { jobType } : {}),
+      ...(salaryMin !== undefined        ? { salaryMin } : {}),
+      ...(salaryMax !== undefined        ? { salaryMax } : {}),
+      ...(currency !== undefined         ? { currency } : {}),
+      ...(requiredSkills !== undefined   ? { requiredSkills } : {}),
+      ...(preferredSkills !== undefined  ? { preferredSkills } : {}),
+      ...(minExperienceYears !== undefined ? { minExperienceYears } : {}),
+      ...(requiredLanguages !== undefined ? { requiredLanguages } : {}),
+      ...(jdText !== undefined           ? { jdText } : {}),
+      ...(closingDate !== undefined      ? { closingDate: closingDate ? new Date(closingDate) : null } : {}),
+      // Recruiter-edited screening questions can be saved directly without
+      // round-tripping through AI — they may have hand-edited or added customs.
+      ...(screeningQuestions !== undefined ? { screeningQuestions } : {}),
+    }
+
+    const updated = await prisma.job.update({
+      where: { id: job.id },
+      data: updateData,
+    })
+
+    // If the JD body changed, re-run process-jd so extractedCriteria and
+    // baseline screeningQuestions stay aligned with the new text. The
+    // recruiter's hand-edits to screeningQuestions in this request take
+    // precedence — only re-generate if no questions were sent in.
+    if (jdChanged && screeningQuestions === undefined) {
+      try {
+        const aiRes = await axios.post(`${AI_ENGINE_URL}/api/v1/ai/process-jd`, {
+          jobId: updated.id,
+          jdText: updated.jdText,
+          title: updated.title,
+          hiringCompany: updated.hiringCompany,
+          locationCountry: updated.locationCountry,
+          requiredSkills: updated.requiredSkills,
+          minExperienceYears: updated.minExperienceYears,
+          aiMandatoryFields,
+        }, { timeout: 30000 })
+        const { extractedCriteria, screeningQuestions: regenQs } = aiRes.data.data
+        const final = await prisma.job.update({
+          where: { id: updated.id },
+          data: { extractedCriteria, screeningQuestions: regenQs },
+        })
+        return res.json({ success: true, data: final })
+      } catch {
+        logger.warn('AI Engine unavailable on edit — kept existing AI data', { jobId: updated.id })
+      }
+    }
+
+    res.json({ success: true, data: updated })
+  } catch (err: any) {
+    const isValidation = err?.name === 'PrismaClientValidationError' || err?.name === 'PrismaClientKnownRequestError'
+    res.status(isValidation ? 400 : 500).json({
+      success: false,
+      error: {
+        code: isValidation ? 'VALIDATION' : 'INTERNAL_ERROR',
+        message: isValidation ? (err?.message || '').slice(0, 400) : 'Failed to update job',
+      },
+    })
+  }
+})
+
 // ── ACTIVATE JOB ──────────────────────────────────────────────────────────────
 jobsRouter.post('/:id/activate', async (req: AuthRequest, res) => {
   try {
@@ -221,16 +309,61 @@ jobsRouter.post('/:id/activate', async (req: AuthRequest, res) => {
 jobsRouter.patch('/:id/status', async (req: AuthRequest, res) => {
   try {
     const { status } = req.body
-    if (!['paused', 'closed'].includes(status)) {
+    // Only active → archived flows through this endpoint. Draft → active uses
+    // POST /:id/activate. Archived → active uses POST /:id/unarchive.
+    if (status !== 'archived') {
       return res.status(400).json({ success: false, error: { code: 'INVALID_STATUS', message: 'Invalid status' } })
     }
     const updated = await prisma.job.update({
       where: { id: req.params.id },
-      data: { status, ...(status === 'closed' ? { closedAt: new Date() } : {}) },
+      data: { status, archivedAt: new Date() },
     })
     res.json({ success: true, data: updated })
   } catch (err) {
     res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to update status' } })
+  }
+})
+
+// ── UNARCHIVE ─────────────────────────────────────────────────────────────────
+// Restore an archived job to active status. Clears archivedAt; activatedAt is
+// preserved so analytics still has the original go-live timestamp.
+jobsRouter.post('/:id/unarchive', async (req: AuthRequest, res) => {
+  try {
+    const job = await prisma.job.findFirst({
+      where: { id: req.params.id, agencyId: req.user!.agencyId },
+    })
+    if (!job) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Job not found' } })
+    if (job.status !== 'archived') {
+      return res.status(409).json({ success: false, error: { code: 'NOT_ARCHIVED', message: 'Only archived jobs can be unarchived' } })
+    }
+    const updated = await prisma.job.update({
+      where: { id: job.id },
+      data: { status: 'active', archivedAt: null },
+    })
+    res.json({ success: true, data: updated })
+  } catch (err) {
+    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to unarchive job' } })
+  }
+})
+
+// ── DELETE (DRAFT ONLY) ───────────────────────────────────────────────────────
+// Hard delete a draft. Active and archived jobs can never be deleted — they
+// carry candidate history and analytics state. Drafts have no candidates and
+// no analytics signal, so removal is safe.
+jobsRouter.delete('/:id', async (req: AuthRequest, res) => {
+  try {
+    const job = await prisma.job.findFirst({
+      where: { id: req.params.id, agencyId: req.user!.agencyId },
+      select: { id: true, status: true },
+    })
+    if (!job) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Job not found' } })
+    if (job.status !== 'draft') {
+      return res.status(409).json({ success: false, error: { code: 'NOT_DRAFT', message: 'Only drafts can be deleted. Archive active jobs instead.' } })
+    }
+    await prisma.job.delete({ where: { id: job.id } })
+    res.json({ success: true, data: { id: job.id, deleted: true } })
+  } catch (err) {
+    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to delete job' } })
   }
 })
 

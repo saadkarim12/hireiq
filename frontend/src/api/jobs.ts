@@ -33,9 +33,22 @@ export const jobsApi = {
     return res.data.data
   },
 
-  // Update job status
-  updateStatus: async (id: string, status: 'paused' | 'closed') => {
+  // Update job status (currently only supports active → archived; activate
+  // uses the dedicated POST /:id/activate endpoint).
+  updateStatus: async (id: string, status: 'archived') => {
     const res = await api.patch<Job>(`/jobs/${id}/status`, { status })
+    return res.data.data
+  },
+
+  // Restore an archived job to active.
+  unarchive: async (id: string) => {
+    const res = await api.post<Job>(`/jobs/${id}/unarchive`)
+    return res.data.data
+  },
+
+  // Hard-delete a draft. Backend rejects 409 for non-drafts.
+  remove: async (id: string) => {
+    const res = await api.delete<{ id: string; deleted: boolean }>(`/jobs/${id}`)
     return res.data.data
   },
 

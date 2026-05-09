@@ -158,7 +158,7 @@ analyticsRouter.get('/score-distribution', async (req: AuthRequest, res) => {
 analyticsRouter.get('/jobs', async (req: AuthRequest, res) => {
   try {
     const jobs = await prisma.job.findMany({
-      where: { agencyId: req.user!.agencyId, status: { in: ['active', 'paused'] } },
+      where: { agencyId: req.user!.agencyId, status: 'active' },
       include: { _count: { select: { candidates: true } } },
     })
 

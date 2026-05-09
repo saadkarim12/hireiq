@@ -1,11 +1,9 @@
 'use client'
 // src/components/candidates/CandidatePanel.tsx
 //
-// Unified candidate drawer. Used in three contexts:
+// Unified candidate drawer. Used in two contexts:
 //   - 'talent_pool' : drawer opens from Talent Pool. Primary action: Add to Pipeline (for selected job).
 //                     Shows job history. No tabs.
-//   - 'cv_inbox'    : drawer opens from CV Inbox. Primary action: Approve to L1 (same flow as Pipeline Applied).
-//                     Secondary: Add to Pool / Reject. No tabs.
 //   - 'pipeline'    : drawer opens from the job pipeline kanban. Primary action: Approve to [next Lx] per current stage.
 //                     Tabs: Summary / WhatsApp Chat / CV.
 //
@@ -30,7 +28,7 @@ import type { PipelineStage, RejectionReason, CandidateFull } from '@/types'
 import toast from 'react-hot-toast'
 import clsx from 'clsx'
 
-export type PanelContext = 'talent_pool' | 'cv_inbox' | 'pipeline'
+export type PanelContext = 'talent_pool' | 'pipeline'
 
 interface CandidatePanelProps {
   candidateId: string
@@ -48,8 +46,6 @@ interface CandidatePanelProps {
   /** TP only: invoked when recruiter clicks "Approve to L1" — skips Applied stage,
    *  fires WhatsApp screening directly. Parent owns the mutation. */
   onApproveToL1?: () => void
-  /** CV Inbox only: invoked when recruiter clicks "Add to Pool". Parent owns the mutation. */
-  onAddToPool?: () => void
 }
 
 const REJECTION_REASONS: { value: RejectionReason; label: string }[] = [
@@ -75,7 +71,7 @@ type Tab = 'summary' | 'transcript' | 'cv'
 
 export function CandidatePanel({
   candidateId, context, jobId, jobTitle, initialData,
-  onClose, onStatusUpdate, onAddToPipeline, onApproveToL1, onAddToPool,
+  onClose, onStatusUpdate, onAddToPipeline, onApproveToL1,
 }: CandidatePanelProps) {
   const [activeTab, setActiveTab] = useState<Tab>('summary')
   const [showRejectModal, setShowRejectModal] = useState(false)
@@ -240,11 +236,6 @@ export function CandidatePanel({
                 {context === 'talent_pool' && jobTitle && (
                   <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: '#E8F5EE', color: '#0A3D2E' }}>
                     {jobTitle}
-                  </span>
-                )}
-                {context === 'cv_inbox' && candidate?.dataTags?.sourceChannel && (
-                  <span className="text-xs px-2 py-0.5 rounded-full font-medium capitalize bg-gray-100 text-gray-600">
-                    {String(candidate.dataTags.sourceChannel).replace(/_/g, ' ')}
                   </span>
                 )}
               </div>
@@ -726,34 +717,6 @@ export function CandidatePanel({
                   <DocumentArrowDownIcon className="w-4 h-4" /> Download CV
                 </button>
               </div>
-            ) : context === 'cv_inbox' ? (
-              <div className="space-y-2">
-                <button
-                  onClick={() => setShowApproveConfirm(true)}
-                  disabled={updateMutation.isPending || isScreeningInProgress}
-                  className="w-full btn-primary justify-center gap-2 text-sm"
-                >
-                  <CheckCircleIcon className="w-4 h-4" />
-                  Approve to L1
-                </button>
-                <div className="flex gap-2">
-                  <button
-                    onClick={onAddToPool}
-                    className="flex-1 btn-secondary text-sm"
-                  >
-                    + Add to Pool
-                  </button>
-                  <button
-                    onClick={() => setShowRejectModal(true)}
-                    className="flex-1 btn-secondary text-red-600 border-red-200 hover:bg-red-50 text-sm"
-                  >
-                    ✗ Reject
-                  </button>
-                </div>
-                <button onClick={handleDownloadCV} className="w-full btn-secondary text-sm gap-1.5">
-                  <DocumentArrowDownIcon className="w-4 h-4" /> Download CV
-                </button>
-              </div>
             ) : (
               // Pipeline
               <div className="space-y-2">
@@ -797,7 +760,7 @@ export function CandidatePanel({
         )}
       </div>
 
-      {/* ── Approve-to-L1 confirmation modal (shared across cv_inbox + pipeline-Applied) ── */}
+      {/* ── Approve-to-L1 confirmation modal (used by pipeline-Applied + TP-direct) ── */}
       {showApproveConfirm && candidate && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
           <div className="fixed inset-0 bg-black/50" onClick={() => setShowApproveConfirm(false)} />

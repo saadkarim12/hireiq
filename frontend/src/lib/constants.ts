@@ -33,6 +33,115 @@ export const COUNTRY_TO_CURRENCY: Record<string, Currency> = {
 } as any  // Currency type covers GCC + USD/GBP; cast handles BHD/KWD/etc.
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Job lifecycle status — draft → active → archived
+//
+// Single source of truth for the values, labels, badge styling, and tab
+// configuration. Anything that needs to render or filter on job status reads
+// from here. No string literals.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const JOB_STATUS = {
+  DRAFT:    'draft',
+  ACTIVE:   'active',
+  ARCHIVED: 'archived',
+} as const
+
+export type JobStatusValue = typeof JOB_STATUS[keyof typeof JOB_STATUS]
+
+export const JOB_STATUS_META: Record<JobStatusValue, {
+  label: string
+  badgeClasses: string
+  dotClasses:   string
+}> = {
+  draft:    { label: 'Draft',    badgeClasses: 'bg-gray-100 text-gray-600',   dotClasses: 'bg-gray-400'  },
+  active:   { label: 'Active',   badgeClasses: 'bg-green-50 text-green-700', dotClasses: 'bg-green-500' },
+  archived: { label: 'Archived', badgeClasses: 'bg-red-50 text-red-600',     dotClasses: 'bg-red-400'   },
+}
+
+// Tabs displayed on the jobs list. Order is the rendered order; first entry
+// is the default selected tab.
+export const JOB_STATUS_TABS: { label: string; value: JobStatusValue }[] = [
+  { label: 'Active',   value: JOB_STATUS.ACTIVE   },
+  { label: 'Drafts',   value: JOB_STATUS.DRAFT    },
+  { label: 'Archived', value: JOB_STATUS.ARCHIVED },
+]
+
+export const DEFAULT_JOB_STATUS_TAB: JobStatusValue = JOB_STATUS_TABS[0].value
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Job lifecycle actions — labels + confirmation copy
+//
+// Every recruiter-facing button label and modal string for the job lifecycle
+// lives here. Component code references JOB_ACTIONS.<KEY>.label / .confirm.* —
+// no inline strings, no per-component duplication.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const JOB_ACTIONS = {
+  VIEW: {
+    key:   'view',
+    label: 'View',
+  },
+  EDIT: {
+    key:   'edit',
+    label: 'Edit',
+  },
+  RESUME: {
+    key:   'resume',
+    label: 'Resume Editing',
+  },
+  PUBLISH: {
+    key:     'publish',
+    label:   'Publish',
+    confirm: {
+      title:   'Publish this draft?',
+      body:    'Publishing makes this job active. It will appear on the jobs board and start accepting CV uploads. This calls Claude — billable.',
+      confirm: 'Yes, publish',
+      cancel:  'Cancel',
+    },
+  },
+  ARCHIVE: {
+    key:     'archive',
+    label:   'Archive',
+    confirm: {
+      title:   'Archive this job?',
+      body:    'Archived jobs are hidden from the active board and stop accepting new CV uploads. Existing candidates and analytics are preserved. You can unarchive later.',
+      confirm: 'Yes, archive',
+      cancel:  'Cancel',
+    },
+  },
+  UNARCHIVE: {
+    key:     'unarchive',
+    label:   'Unarchive',
+    confirm: {
+      title:   'Unarchive this job?',
+      body:    'This will restore the job to active and return it to the main jobs board. CV uploads will be accepted again.',
+      confirm: 'Yes, unarchive',
+      cancel:  'Cancel',
+    },
+  },
+  DELETE: {
+    key:     'delete',
+    label:   'Delete',
+    confirm: {
+      title:   'Delete this draft?',
+      body:    'This permanently removes the draft. There is no undo. (Only drafts can be deleted — active and archived jobs are kept for history.)',
+      confirm: 'Yes, delete',
+      cancel:  'Cancel',
+    },
+  },
+} as const
+
+// Per-status action sets. Order is render order; the first non-VIEW entry is
+// treated as the primary CTA on screens that render these as buttons.
+// Consumers that don't want VIEW in their list (e.g. the View screen itself,
+// where the action would be a no-op) should filter it out — see ViewJobPage.
+export const JOB_ACTIONS_BY_STATUS: Record<JobStatusValue, Array<keyof typeof JOB_ACTIONS>> = {
+  draft:    ['VIEW', 'RESUME', 'PUBLISH', 'DELETE'],
+  active:   ['VIEW', 'EDIT', 'ARCHIVE'],
+  archived: ['VIEW', 'UNARCHIVE'],
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Job — work mode, employment type
 // ─────────────────────────────────────────────────────────────────────────────
 // Note: "AI screening" is implicit — every job is AI-driven. There is no UI

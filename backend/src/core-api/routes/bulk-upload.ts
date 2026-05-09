@@ -42,6 +42,21 @@ bulkUploadRouter.post('/bulk-upload', upload.array('cvFiles', 50), async (req: A
   if (!files?.length)
     return res.status(400).json({ success: false, error: { code: 'NO_FILES', message: 'No files uploaded' } })
 
+  // Archived jobs do not accept new uploads. Check up-front so the recruiter
+  // gets immediate feedback rather than discovering it via empty Talent Pool.
+  if (jobId) {
+    const targetJob = await prisma.job.findFirst({
+      where: { id: jobId, agencyId: req.user!.agencyId },
+      select: { status: true },
+    })
+    if (!targetJob) {
+      return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Job not found' } })
+    }
+    if (targetJob.status === 'archived') {
+      return res.status(409).json({ success: false, error: { code: 'JOB_ARCHIVED', message: 'This job is archived and cannot accept new applications.' } })
+    }
+  }
+
   res.json({ success: true, data: { queued: files.length, message: `Processing ${files.length} CVs. Check Talent Pool shortly.` } })
 
   let processed = 0, failed = 0, duplicates = 0, reopened = 0
@@ -108,7 +123,13 @@ bulkUploadRouter.post('/bulk-upload', upload.array('cvFiles', 50), async (req: A
 
       const jobRecord = jobId
         ? await prisma.job.findUnique({ where: { id: jobId }, select: { id: true, title: true, hiringCompany: true } })
-        : await prisma.job.findFirst({ where: { agencyId: req.user!.agencyId }, orderBy: { createdAt: 'desc' }, select: { id: true, title: true, hiringCompany: true } })
+        // Talent Pool fallback (no jobId): pick the most recent non-archived
+        // job so we never silently route uploads into an archived job.
+        : await prisma.job.findFirst({
+            where: { agencyId: req.user!.agencyId, status: { not: 'archived' } },
+            orderBy: { createdAt: 'desc' },
+            select: { id: true, title: true, hiringCompany: true },
+          })
       const defaultJob = jobRecord?.id
       if (!defaultJob) { failed++; continue }
 
@@ -330,6 +351,9 @@ bulkUploadRouter.post('/jobs/:jobId/invite-from-pool', async (req: AuthRequest, 
     if (!candidateIds?.length) return res.status(400).json({ success: false, error: { code: 'VALIDATION', message: 'No candidates selected' } })
     const job = await prisma.job.findFirst({ where: { id: jobId, agencyId: req.user!.agencyId } })
     if (!job) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Job not found' } })
+    if (job.status === 'archived') {
+      return res.status(409).json({ success: false, error: { code: 'JOB_ARCHIVED', message: 'This job is archived and cannot accept new applications.' } })
+    }
 
     const targetStage = approveToL1 ? 'shortlisted' : 'applied'
     const now = new Date().toISOString()

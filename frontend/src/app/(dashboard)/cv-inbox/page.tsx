@@ -1,10 +1,9 @@
 'use client'
 import { useState, useCallback, useRef } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { api } from '@/api/client'
 import apiClient from '@/api/client'
 import { toast } from 'react-hot-toast'
-import { CandidatePanel } from '@/components/candidates/CandidatePanel'
 
 const SOURCES = [
   { value: 'linkedin',        label: '💼 LinkedIn' },
@@ -17,7 +16,6 @@ const SOURCES = [
 ]
 
 export default function CvInboxPage() {
-  const qc = useQueryClient()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [isDragging, setIsDragging] = useState(false)
   const [uploadFiles, setUploadFiles] = useState<File[]>([])
@@ -25,36 +23,15 @@ export default function CvInboxPage() {
   const [pdplConsent, setPdplConsent] = useState(false)
   const [selectedJobId, setSelectedJobId] = useState('')
   const [isUploading, setIsUploading] = useState(false)
-  const [uploadDone, setUploadDone] = useState(false)
   const [processingCount, setProcessingCount] = useState(0)
   const [processedCount, setProcessedCount] = useState(0)
-  const [filterJob, setFilterJob] = useState('')
-  const [selectedInbox, setSelectedInbox] = useState<any>(null)
 
   const { data: jobsRes } = useQuery({
     queryKey: ['jobs-active'],
     queryFn: () => api.get<any[]>('/jobs'),
   })
 
-  const { data: inboxRes, isLoading, refetch } = useQuery({
-    queryKey: ['cv-inbox'],
-    queryFn: () => api.get<any[]>('/talent-pool/search?maxDays=7&minScore=0'),
-    refetchInterval: 10000,
-  })
-
   const jobs = jobsRes?.data?.data || []
-  const inboxCandidates = [...(inboxRes?.data?.data || [])]
-    .filter((c: any) => {
-      if (c.pipelineStage === 'rejected') return false
-      if (!c.fullName || c.fullName === '<UNKNOWN>' || c.fullName === 'UNKNOWN') return false
-      if (filterJob) {
-        const matchedJob = jobs.find((j: any) => j.id === filterJob)
-        const jobTitle = matchedJob?.title || ''
-        return c.jobId === filterJob || (c.dataTags as any)?.jobTitle === jobTitle
-      }
-      return true
-    })
-    .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -81,7 +58,6 @@ export default function CvInboxPage() {
       formData.append('pdplConsent', 'true')
       if (selectedJobId) formData.append('jobId', selectedJobId)
 
-      const DEV_TOKEN = document.querySelector('meta[name="dev-token"]')?.getAttribute('content') || ''
       const authHeader = (apiClient.defaults.headers as any)?.Authorization || ''
 
       const res = await fetch('http://localhost:3001/api/v1/bulk-upload', {
@@ -92,9 +68,10 @@ export default function CvInboxPage() {
       const data = await res.json()
       if (data.success) {
         toast.success(`${data.data.queued} CVs queued — AI is parsing them now`)
-        setUploadFiles([]); setPdplConsent(false); setUploadDone(true)
+        setUploadFiles([]); setPdplConsent(false)
         setProcessingCount(data.data.queued); setProcessedCount(0)
-        // Poll every 5 seconds to update count
+        // Poll every 5 seconds to update progress count. Counts recently
+        // applied/evaluated candidates as a proxy for "this upload finished".
         let polls = 0
         const interval = setInterval(async () => {
           polls++
@@ -102,7 +79,6 @@ export default function CvInboxPage() {
             const r = await api.get<any[]>('/talent-pool/search?maxDays=1')
             const bulkUploaded = (r.data?.data || []).filter((c: any) => ['applied','evaluated'].includes(c.pipelineStage))
             setProcessedCount(bulkUploaded.length)
-            refetch()
           } catch {}
           if (polls >= 12) clearInterval(interval) // stop after 60s
         }, 5000)
@@ -113,39 +89,12 @@ export default function CvInboxPage() {
     finally { setIsUploading(false) }
   }
 
-  const accept = useMutation({
-    mutationFn: (id: string) => api.patch(`/candidates/${id}/status`, { pipelineStage: 'evaluated' }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['cv-inbox'] })
-      qc.invalidateQueries({ queryKey: ['dashboard'] })
-      toast.success('Moved to Talent Pool')
-    },
-  })
-
-  const reject = useMutation({
-    mutationFn: (id: string) => api.patch(`/candidates/${id}/status`, { pipelineStage: 'rejected' }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['cv-inbox'] })
-      qc.invalidateQueries({ queryKey: ['dashboard'] })
-      toast.success('CV rejected')
-    },
-  })
-
-  const acceptAll = async () => {
-    for (const c of inboxCandidates) {
-      await api.patch(`/candidates/${c.id}/status`, { pipelineStage: 'evaluated' })
-    }
-    qc.invalidateQueries({ queryKey: ['cv-inbox'] })
-    qc.invalidateQueries({ queryKey: ['dashboard'] })
-    toast.success(`${inboxCandidates.length} CVs moved to Talent Pool`)
-  }
-
   return (
     <div className="max-w-4xl mx-auto">
       <div className="mb-6">
         <h1 className="text-2xl font-bold" style={{ color: '#0A3D2E' }}>CV Inbox</h1>
         <p className="text-gray-500 text-sm mt-1">
-          Upload CVs from any source. AI parses each one. Review and accept good candidates to your Talent Pool.
+          Upload CVs from any source. AI parses each one and routes them to the matched job pipeline.
         </p>
       </div>
 
@@ -156,11 +105,9 @@ export default function CvInboxPage() {
           <span className="text-gray-400">→</span>
           <span className="px-2.5 py-1 rounded-lg text-xs font-semibold text-white" style={{ background: '#C9A84C' }}>2 AI Parses</span>
           <span className="text-gray-400">→</span>
-          <span className="px-2.5 py-1 rounded-lg text-xs font-semibold text-white" style={{ background: '#0F6E56' }}>3 You Review</span>
-          <span className="text-gray-400">→</span>
-          <span className="px-2.5 py-1 rounded-lg text-xs font-semibold text-white" style={{ background: '#166534' }}>4 Talent Pool</span>
+          <span className="px-2.5 py-1 rounded-lg text-xs font-semibold text-white" style={{ background: '#166534' }}>3 Job Pipeline</span>
         </div>
-        <span className="text-green-700 ml-2">Accepted CVs go to Talent Pool and can be matched against any job</span>
+        <span className="text-green-700 ml-2">Parsed CVs land in the matched job&rsquo;s Applied column for recruiter review.</span>
       </div>
 
       {/* Upload zone */}
@@ -249,140 +196,17 @@ export default function CvInboxPage() {
           <div>
             <p className="text-sm font-semibold" style={{ color: processedCount >= processingCount ? '#166534' : '#92400E' }}>
               {processedCount >= processingCount
-                ? `All ${processingCount} CVs processed — review them below`
+                ? `All ${processingCount} CVs processed — they are now in the matched job pipeline`
                 : `AI is parsing CVs... ${processedCount} of ${processingCount} done`}
             </p>
             <p className="text-xs text-gray-400 mt-0.5">
               {processedCount >= processingCount
-                ? 'Accept good candidates to move them to Talent Pool'
+                ? 'Open the job from the Jobs board to review the new applicants'
                 : 'This takes about 10-15 seconds per CV. Page updates automatically.'}
             </p>
           </div>
-          {processedCount >= processingCount && (
-            <span className="ml-auto text-xs px-3 py-1 rounded-full font-medium" style={{ background: '#0A3D2E', color: '#C9A84C' }}>
-              {processingCount} ready to review
-            </span>
-          )}
         </div>
       )}
-
-      {/* CV Review table */}
-      <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
-        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-          <div>
-            <h2 className="text-base font-semibold" style={{ color: '#0A3D2E' }}>Pending Review</h2>
-            <p className="text-xs text-gray-400 mt-0.5">CVs uploaded in the last 7 days awaiting your decision</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <select value={filterJob} onChange={e => setFilterJob(e.target.value)}
-              className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 outline-none focus:border-emerald-400 min-w-[160px]">
-              <option value="">All jobs</option>
-              {jobs.filter((j: any, idx: number, arr: any[]) => arr.findIndex((x: any) => x.id === j.id) === idx).map((j: any) => (
-                <option key={j.id} value={j.id}>{j.title} — {j.hiringCompany}</option>
-              ))}
-            </select>
-            {inboxCandidates.length > 0 && (
-              <button onClick={acceptAll}
-                className="text-xs px-3 py-1.5 rounded-lg font-medium text-white whitespace-nowrap" style={{ background: '#0A3D2E' }}>
-                Accept all ({inboxCandidates.length}) → Talent Pool
-              </button>
-            )}
-          </div>
-        </div>
-
-        {isLoading ? (
-          <div className="flex items-center justify-center py-12">
-            <div className="animate-spin w-6 h-6 border-2 rounded-full" style={{ borderColor: '#C9A84C', borderTopColor: 'transparent' }} />
-          </div>
-        ) : inboxCandidates.length === 0 ? (
-          <div className="text-center py-12 text-gray-400">
-            <div className="text-3xl mb-2">📬</div>
-            <p className="font-medium text-sm">Inbox is empty</p>
-            <p className="text-xs mt-1">Upload CVs above — they will appear here once AI finishes parsing (takes ~1 min)</p>
-          </div>
-        ) : (
-          <table className="w-full">
-            <thead>
-              <tr className="bg-gray-50 border-b border-gray-100">
-                {['Candidate','Current Role','Job Applied','Experience','Score','Source','Decision'].map(h => (
-                  <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {inboxCandidates.map((c: any, i: number) => {
-                const score = c.compositeScore
-                const scoreColor = score >= 75 ? '#166534' : score >= 55 ? '#92400E' : score ? '#991B1B' : '#9CA3AF'
-                const scoreBg   = score >= 75 ? '#DCFCE7' : score >= 55 ? '#FEF3C7' : score ? '#FEE2E2' : '#F3F4F6'
-                return (
-                  <tr key={c.id} onClick={() => setSelectedInbox(c)} className={`border-b border-gray-50 cursor-pointer hover:bg-emerald-50/30 transition-colors ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}`}>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0"
-                          style={{ background: '#E8F5EE', color: '#0A3D2E' }}>
-                          {c.fullName?.split(' ').map((n: string) => n[0]).join('').slice(0,2) || '??'}
-                        </div>
-                        <div>
-                          <p className="text-sm font-medium text-gray-800">{c.fullName || 'Parsing...'}</p>
-                          <p className="text-xs text-gray-400">{c.email || ''}</p>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-600">{c.currentRole || '—'}</td>
-                    <td className="px-4 py-3 text-sm text-gray-500 text-xs">{(c.dataTags as any)?.jobTitle || '—'}</td>
-                    <td className="px-4 py-3 text-sm text-gray-600">{c.yearsExperience ? `${c.yearsExperience} yrs` : '—'}</td>
-                    <td className="px-4 py-3">
-                      {score ? (
-                        <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: scoreBg, color: scoreColor }}>
-                          {score}
-                        </span>
-                      ) : <span className="text-xs text-gray-400 italic">Pending...</span>}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: '#E8F5EE', color: '#0A3D2E' }}>
-                        {(c.sourceChannel || 'other').replace(/_/g,' ')}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex gap-2">
-                        <button onClick={(e) => { e.stopPropagation(); accept.mutate(c.id) }}
-                          className="text-xs px-3 py-1.5 rounded-lg font-semibold text-white transition-all"
-                          style={{ background: '#0A3D2E' }}>
-                          ✓ Accept
-                        </button>
-                        <button onClick={(e) => { e.stopPropagation(); reject.mutate(c.id) }}
-                          className="text-xs px-3 py-1.5 rounded-lg font-semibold border border-red-200 text-red-600 hover:bg-red-50 transition-all">
-                          ✗ Reject
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        )}
-      </div>
-
-      {/* Candidate drawer — shared component */}
-      {selectedInbox && (
-        <CandidatePanel
-          candidateId={selectedInbox.id}
-          context="cv_inbox"
-          initialData={selectedInbox}
-          onClose={() => setSelectedInbox(null)}
-          onAddToPool={() => {
-            accept.mutate(selectedInbox.id)
-            setSelectedInbox(null)
-          }}
-          onStatusUpdate={() => {
-            qc.invalidateQueries({ queryKey: ['cv-inbox'] })
-            qc.invalidateQueries({ queryKey: ['dashboard'] })
-          }}
-        />
-      )}
-
-
     </div>
   )
 }
