@@ -47,6 +47,18 @@ export function CandidateCard({ candidate, onClick, isDragging }: CandidateCardP
   const availability = candidate.dataTags?.availability
   const seniorityLevel = candidate.dataTags?.seniorityLevel
 
+  // Stage-aware score: must match the drawer (CandidatePanel) so the kanban card
+  // and the drawer never disagree. Pre-screening stages have CV-only scoring,
+  // so composite is null/0 there — show cvMatchScore. From L1 onward, show
+  // composite as the headline number.
+  const isPreScreening = candidate.pipelineStage === 'applied'
+    || candidate.pipelineStage === 'evaluated'
+    || candidate.pipelineStage === 'screening'
+  const cardScore: number | null = isPreScreening
+    ? (candidate.scores?.cvMatchScore ?? (candidate as any).cvMatchScore ?? null)
+    : (candidate.scores?.compositeScore ?? (candidate as any).compositeScore ?? null)
+  const salaryFit: number | null = candidate.scores?.salaryFitScore ?? (candidate as any).salaryFitScore ?? null
+
   return (
     <div
       ref={setNodeRef}
@@ -75,22 +87,22 @@ export function CandidateCard({ candidate, onClick, isDragging }: CandidateCardP
             <p className="text-xs text-gray-500 truncate mt-0.5">{candidate.currentRole}</p>
           )}
         </div>
-        {(candidate.scores?.compositeScore ?? candidate.compositeScore) !== null && (
+        {cardScore !== null && (
           <div className={clsx(
             'flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold',
-            (candidate.scores?.compositeScore ?? candidate.compositeScore) >= 80 ? 'bg-green-50 text-green-700' :
-            (candidate.scores?.compositeScore ?? candidate.compositeScore) >= 60 ? 'bg-amber-50 text-amber-700' :
+            cardScore >= 80 ? 'bg-green-50 text-green-700' :
+            cardScore >= 60 ? 'bg-amber-50 text-amber-700' :
             'bg-red-50 text-red-600'
           )}>
-            {(candidate.scores?.compositeScore ?? candidate.compositeScore)}
+            {cardScore}
           </div>
         )}
       </div>
 
       {/* Score bar */}
-      {(candidate.scores?.compositeScore ?? candidate.compositeScore) !== null && (
+      {cardScore !== null && (
         <div className="mb-2.5">
-          <ScoreBar score={(candidate.scores?.compositeScore ?? candidate.compositeScore)} />
+          <ScoreBar score={cardScore} />
         </div>
       )}
 
@@ -132,7 +144,7 @@ export function CandidateCard({ candidate, onClick, isDragging }: CandidateCardP
         <span className="text-xs text-gray-400">
           {formatDistanceToNow(new Date(candidate.createdAt), { addSuffix: true })}
         </span>
-        {(candidate.scores?.[salaryFitScore] ?? (candidate as any).salaryFitScore) !== null && (candidate.scores?.[salaryFitScore] ?? (candidate as any).salaryFitScore) < 50 && (
+        {salaryFit !== null && salaryFit < 50 && (
           <span className="text-xs text-red-500 font-medium">💰 Salary gap</span>
         )}
       </div>

@@ -8,7 +8,7 @@ import { candidatesApi } from '@/api/candidates'
 import { KanbanBoard } from '@/components/pipeline/KanbanBoard'
 import { CandidatePanel } from '@/components/candidates/CandidatePanel'
 import { JobStatusBadge } from '@/components/jobs/JobStatusBadge'
-import { SparklesIcon, ArrowDownTrayIcon, ShareIcon } from '@heroicons/react/24/outline'
+import { SparklesIcon, ArrowDownTrayIcon, ShareIcon, MagnifyingGlassIcon, ArrowUturnLeftIcon, CheckCircleIcon, XCircleIcon } from '@heroicons/react/24/outline'
 import type { CandidateSummary, PipelineStage } from '@/types'
 import toast from 'react-hot-toast'
 import clsx from 'clsx'
@@ -29,6 +29,8 @@ export default function PipelinePage({ params }: PageProps) {
   const queryClient = useQueryClient()
   const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null)
   const [isExporting, setIsExporting] = useState(false)
+  const [tab, setTab] = useState<'accepted' | 'rejected'>('accepted')
+  const [searchQuery, setSearchQuery] = useState('')
 
   const { data: job, isLoading: jobLoading } = useQuery({
     queryKey: ['job', id],
@@ -56,6 +58,21 @@ export default function PipelinePage({ params }: PageProps) {
 
   const candidates: CandidateSummary[] = candidatesData?.data || []
 
+  const matchesSearch = (c: CandidateSummary) => {
+    const q = searchQuery.trim().toLowerCase()
+    if (!q) return true
+    return (
+      (c.fullName?.toLowerCase().includes(q) ?? false) ||
+      (c.currentRole?.toLowerCase().includes(q) ?? false) ||
+      (((c as any).email as string | null)?.toLowerCase().includes(q) ?? false)
+    )
+  }
+
+  const acceptedCandidates = candidates.filter(c => c.pipelineStage !== 'rejected')
+  const rejectedCandidates = candidates.filter(c => c.pipelineStage === 'rejected')
+  const visibleAccepted = acceptedCandidates.filter(matchesSearch)
+  const visibleRejected = rejectedCandidates.filter(matchesSearch)
+
   const updateStatusMutation = useMutation({
     mutationFn: ({ candidateId, stage }: { candidateId: string; stage: PipelineStage }) =>
       candidatesApi.updateStatus(candidateId, { pipelineStage: stage }),
@@ -69,6 +86,32 @@ export default function PipelinePage({ params }: PageProps) {
 
   const handleStageChange = (candidateId: string, newStage: PipelineStage) => {
     updateStatusMutation.mutate({ candidateId, stage: newStage })
+  }
+
+  const handleRestoreFromRejected = (candidateId: string, name: string | null) => {
+    updateStatusMutation.mutate(
+      { candidateId, stage: 'applied' as PipelineStage },
+      { onSuccess: () => toast.success(`${name || 'Candidate'} restored to Applied`) },
+    )
+  }
+
+  const stageLabel = (stage: string | null | undefined) => {
+    switch (stage) {
+      case 'applied':
+      case 'evaluated':
+      case 'screening':
+        return 'Applied'
+      case 'shortlisted':
+        return 'L1 — CV Screened'
+      case 'interviewing':
+        return 'L2 — WA Screened'
+      case 'offered':
+        return 'L3 — Interviewed'
+      case 'hired':
+        return 'Final Shortlist'
+      default:
+        return stage || 'Unknown'
+    }
   }
 
   const handleExportPdf = async () => {
@@ -184,8 +227,65 @@ ${job.locationCountry === 'AE' ? '#UAEJobs #DubaiJobs #AbuDhabiJobs' : '#SaudiJo
           </div>
         </div>
 
+        {/* Tabs + Search */}
+        <div className="px-6 pt-5 pb-4 bg-white border-b border-gray-200 flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex items-stretch gap-2">
+            <button
+              onClick={() => setTab('accepted')}
+              className={clsx(
+                'flex items-center gap-2.5 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all border-2',
+                tab === 'accepted'
+                  ? 'bg-emerald-50 border-emerald-500 text-emerald-800 shadow-sm'
+                  : 'bg-white border-gray-200 text-gray-500 hover:border-gray-300 hover:text-gray-700',
+              )}
+            >
+              <CheckCircleIcon className={clsx('w-5 h-5', tab === 'accepted' ? 'text-emerald-600' : 'text-gray-400')} />
+              <span>Accepted</span>
+              <span
+                className={clsx(
+                  'ml-1 inline-flex items-center justify-center min-w-[24px] h-6 px-2 rounded-full text-xs font-bold',
+                  tab === 'accepted' ? 'bg-emerald-600 text-white' : 'bg-gray-100 text-gray-500',
+                )}
+              >
+                {acceptedCandidates.length}
+              </span>
+            </button>
+            <button
+              onClick={() => setTab('rejected')}
+              className={clsx(
+                'flex items-center gap-2.5 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all border-2',
+                tab === 'rejected'
+                  ? 'bg-rose-50 border-rose-500 text-rose-800 shadow-sm'
+                  : 'bg-white border-gray-200 text-gray-500 hover:border-gray-300 hover:text-gray-700',
+              )}
+            >
+              <XCircleIcon className={clsx('w-5 h-5', tab === 'rejected' ? 'text-rose-600' : 'text-gray-400')} />
+              <span>Rejected CVs</span>
+              <span
+                className={clsx(
+                  'ml-1 inline-flex items-center justify-center min-w-[24px] h-6 px-2 rounded-full text-xs font-bold',
+                  tab === 'rejected' ? 'bg-rose-600 text-white' : 'bg-gray-100 text-gray-500',
+                )}
+              >
+                {rejectedCandidates.length}
+              </span>
+            </button>
+          </div>
+
+          <div className="relative flex-1 max-w-sm min-w-[200px]">
+            <MagnifyingGlassIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search by name, role, or email..."
+              className="w-full pl-9 pr-3 py-2.5 text-sm bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-gold/40 focus:border-brand-gold"
+            />
+          </div>
+        </div>
+
         {/* Shortlist ready banner */}
-        {hasUnreviewedShortlist && (
+        {tab === 'accepted' && hasUnreviewedShortlist && (
           <div className="mx-6 mt-4 bg-brand-gold/10 border border-brand-gold/30 rounded-xl px-4 py-3 flex items-center justify-between">
             <div className="flex items-center gap-2.5">
               <SparklesIcon className="w-4 h-4 text-brand-gold flex-shrink-0" />
@@ -206,6 +306,8 @@ ${job.locationCountry === 'AE' ? '#UAEJobs #DubaiJobs #AbuDhabiJobs' : '#SaudiJo
         )}
 
 
+        {tab === 'accepted' && (
+        <>
         {/* Pipeline Funnel Summary */}
         <div className="mb-4 bg-white border border-gray-200 rounded-2xl p-6">
           <div className="flex items-center justify-between mb-4">
@@ -271,12 +373,80 @@ ${job.locationCountry === 'AE' ? '#UAEJobs #DubaiJobs #AbuDhabiJobs' : '#SaudiJo
         <div className="flex-1 overflow-hidden">
           <KanbanBoard
             stages={STAGES}
-            candidates={candidates}
-            pipelineCounts={pipelineCounts}
+            candidates={visibleAccepted}
+            pipelineCounts={searchQuery.trim() ? null : pipelineCounts}
             onCandidateClick={(candidateId) => setSelectedCandidateId(candidateId)}
             onStageChange={handleStageChange}
           />
         </div>
+        </>
+        )}
+
+        {tab === 'rejected' && (
+          <div className="flex-1 overflow-auto p-6">
+            {visibleRejected.length === 0 ? (
+              <div className="bg-white border border-gray-200 rounded-2xl p-12 text-center">
+                <p className="text-sm font-semibold text-brand-navy">
+                  {searchQuery.trim()
+                    ? 'No rejected CVs match your search'
+                    : 'No rejected CVs for this job'}
+                </p>
+                <p className="text-xs text-gray-500 mt-1">
+                  {searchQuery.trim()
+                    ? 'Try a different name, role, or email.'
+                    : 'Rejected candidates will appear here for review or restoration.'}
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {visibleRejected.map((c) => {
+                  const fromStage = (c as any).rejectedFromStage as string | null
+                  const reason = c.aiRecommendationReason
+                  return (
+                    <div
+                      key={c.id}
+                      className="bg-white border border-gray-200 rounded-xl p-4 hover:shadow-md transition-shadow"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <button
+                          onClick={() => setSelectedCandidateId(c.id)}
+                          className="text-left min-w-0 flex-1"
+                        >
+                          <h3 className="text-sm font-semibold text-brand-navy truncate hover:underline">
+                            {c.fullName || 'Unknown'}
+                          </h3>
+                          <p className="text-xs text-gray-500 truncate mt-0.5">
+                            {c.currentRole || '—'}
+                          </p>
+                        </button>
+                        <button
+                          onClick={() => handleRestoreFromRejected(c.id, c.fullName)}
+                          disabled={updateStatusMutation.isPending}
+                          className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg border border-gray-300 hover:bg-gray-50 text-gray-700 flex-shrink-0 disabled:opacity-50"
+                          title="Restore to Applied"
+                        >
+                          <ArrowUturnLeftIcon className="w-3.5 h-3.5" />
+                          Restore
+                        </button>
+                      </div>
+                      {fromStage && (
+                        <p className="text-[11px] text-gray-400 mt-3">
+                          Rejected from{' '}
+                          <span className="font-medium text-gray-600">
+                            {stageLabel(fromStage)}
+                          </span>
+                        </p>
+                      )}
+                      {reason && (
+                        <p className="text-xs text-gray-600 mt-1.5 line-clamp-2">{reason}</p>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Candidate Profile Panel */}

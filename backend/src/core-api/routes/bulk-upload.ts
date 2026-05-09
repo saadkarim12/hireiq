@@ -11,6 +11,18 @@ bulkUploadRouter.use(requireAuth)
 
 const AI_URL = `http://localhost:${process.env.AI_ENGINE_PORT || 3002}`
 
+// Claude returns sentinel strings like `<UNKNOWN>` when it can't extract a
+// field. Treat anything that isn't a real-looking email as missing — otherwise
+// a single bad row poisons dedupe for every future no-email upload.
+function normalizeEmail(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null
+  const trimmed = raw.trim()
+  if (!trimmed) return null
+  if (/^<?unknown>?$/i.test(trimmed)) return null
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) return null
+  return trimmed.toLowerCase()
+}
+
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024, files: 50 },
@@ -32,7 +44,7 @@ bulkUploadRouter.post('/bulk-upload', upload.array('cvFiles', 50), async (req: A
 
   res.json({ success: true, data: { queued: files.length, message: `Processing ${files.length} CVs. Check Talent Pool shortly.` } })
 
-  let processed = 0, failed = 0, duplicates = 0
+  let processed = 0, failed = 0, duplicates = 0, reopened = 0
   for (const file of files) {
     try {
       const base64 = file.buffer.toString('base64')
@@ -50,15 +62,51 @@ bulkUploadRouter.post('/bulk-upload', upload.array('cvFiles', 50), async (req: A
       const cvStructured = parseRes?.data?.data
       if (!cvStructured?.fullName) { failed++; continue }
 
-      if (cvStructured.email) {
-        const exists = await prisma.candidate.findFirst({ where: { agencyId: req.user!.agencyId, email: cvStructured.email } })
-        if (exists) { duplicates++; continue }
+      const normalizedEmail = normalizeEmail(cvStructured.email)
+      if (normalizedEmail) {
+        const exists = await prisma.candidate.findFirst({ where: { agencyId: req.user!.agencyId, email: normalizedEmail } })
+        if (exists) {
+          if (exists.pipelineStage === 'rejected') {
+            const targetJobId = jobId || exists.jobId
+            const prevHistory = Array.isArray(exists.pipelineStageHistory) ? (exists.pipelineStageHistory as any[]) : []
+            await prisma.candidate.update({
+              where: { id: exists.id },
+              data: {
+                jobId: targetJobId,
+                pipelineStage: 'applied',
+                rejectedFromStage: null,
+                conversationState: 'completed',
+                aiRecommendation: null,
+                aiRecommendationReason: null,
+                aiRecommendationStage: null,
+                currentRole: cvStructured.currentRole || exists.currentRole,
+                yearsExperience: cvStructured.yearsExperienceTotal ?? exists.yearsExperience,
+                cvStructured: JSON.parse(JSON.stringify(cvStructured).slice(0, 65000)) as any,
+                createdAt: new Date(),
+                deletionScheduledAt: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000),
+                pipelineStageHistory: JSON.parse(JSON.stringify([...prevHistory, {
+                  from: 'rejected',
+                  to: 'applied',
+                  timestamp: new Date().toISOString(),
+                  userId: req.user!.id,
+                  entryPath: 'cv_inbox_reupload',
+                }])) as any,
+              },
+            })
+            if (jobId) {
+              axios.post(`${AI_URL}/api/v1/ai/score`, { candidateId: exists.id, jobId: targetJobId }, { timeout: 60000 }).catch(() => {})
+            }
+            reopened++
+            continue
+          }
+          duplicates++; continue
+        }
       }
 
       const crypto = require('crypto')
-      const hash = crypto.createHash('sha256').update(cvStructured.email || cvStructured.phone || file.originalname + Date.now()).digest('hex')
+      const hash = crypto.createHash('sha256').update(normalizedEmail || cvStructured.phone || file.originalname + Date.now()).digest('hex')
 
-      const jobRecord = jobId 
+      const jobRecord = jobId
         ? await prisma.job.findUnique({ where: { id: jobId }, select: { id: true, title: true, hiringCompany: true } })
         : await prisma.job.findFirst({ where: { agencyId: req.user!.agencyId }, orderBy: { createdAt: 'desc' }, select: { id: true, title: true, hiringCompany: true } })
       const defaultJob = jobRecord?.id
@@ -67,7 +115,7 @@ bulkUploadRouter.post('/bulk-upload', upload.array('cvFiles', 50), async (req: A
       const candidate = await prisma.candidate.create({ data: {
         agencyId: req.user!.agencyId, jobId: defaultJob,
         waNumberHash: hash, waNumberEncrypted: cvStructured.phone ? Buffer.from(cvStructured.phone).toString('base64') : 'bulk_upload',
-        fullName: cvStructured.fullName, email: cvStructured.email || null,
+        fullName: cvStructured.fullName, email: normalizedEmail,
         currentRole: cvStructured.currentRole || null, yearsExperience: cvStructured.yearsExperienceTotal || null,
         cvStructured: JSON.parse(JSON.stringify(cvStructured).slice(0, 65000)) as any, cvType: 'full_cv',
         consentGiven: true, consentTimestamp: new Date(),
@@ -98,7 +146,7 @@ bulkUploadRouter.post('/bulk-upload', upload.array('cvFiles', 50), async (req: A
       failed++
     }
   }
-  logger.info(`Bulk upload done: processed=${processed} failed=${failed} duplicates=${duplicates}`)
+  logger.info(`Bulk upload done: processed=${processed} reopened=${reopened} failed=${failed} duplicates=${duplicates}`)
 })
 
 bulkUploadRouter.get('/talent-pool/search', async (req: AuthRequest, res: Response) => {
