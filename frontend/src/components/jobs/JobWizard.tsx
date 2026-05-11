@@ -398,6 +398,18 @@ export function JobWizard({ mode, initialJob }: JobWizardProps) {
   }
 
   // ── STEP 4: persist screening edits + activate (or just save) ─────────────
+  const firstEmptyQuestionIdx = (): number =>
+    (vals.screeningQuestions || []).findIndex(q => !q.questionTextEn || !q.questionTextEn.trim())
+
+  const blockIfEmptyQuestions = (): boolean => {
+    const idx = firstEmptyQuestionIdx()
+    if (idx >= 0) {
+      toast.error(`Question ${idx + 1} is empty — fill it in or remove it before saving.`)
+      return true
+    }
+    return false
+  }
+
   const persistScreeningEdits = async () => {
     if (!createdJobId) return
     const v = getValues()
@@ -408,6 +420,7 @@ export function JobWizard({ mode, initialJob }: JobWizardProps) {
 
   const activateJob = async () => {
     if (!createdJobId) return
+    if (blockIfEmptyQuestions()) return
     setIsSubmitting(true)
     try {
       // In edit mode, persist any hand-edits on questions before activating.
@@ -425,6 +438,7 @@ export function JobWizard({ mode, initialJob }: JobWizardProps) {
 
   const saveAsDraft = async () => {
     if (!createdJobId) return
+    if (blockIfEmptyQuestions()) return
     if (isEdit) {
       setIsSubmitting(true)
       try {
@@ -443,6 +457,7 @@ export function JobWizard({ mode, initialJob }: JobWizardProps) {
   // which writes screening edits back via PATCH.
   const saveChanges = async () => {
     if (!createdJobId) return
+    if (blockIfEmptyQuestions()) return
     setIsSubmitting(true)
     try {
       await persistScreeningEdits()
@@ -863,7 +878,7 @@ export function JobWizard({ mode, initialJob }: JobWizardProps) {
   if (step === 3) {
     const aiVerifyRows: { key: string; title: string; value: any }[] = []
     if (vals.aiVerifyFields?.minSalary) aiVerifyRows.push({
-      key: 'minSalary', title: 'Min Salary',
+      key: 'minSalary', title: 'Salary',
       value: `${vals.salaryMin?.toLocaleString()} ${vals.currency} / month`,
     })
     if (vals.aiVerifyFields?.languages) aiVerifyRows.push({
@@ -1068,15 +1083,35 @@ export function JobWizard({ mode, initialJob }: JobWizardProps) {
               const cat = q.category as QuestionCategory | undefined
               const catBadge = cat && QUESTION_CATEGORY_BADGE[cat]
               const catLabel = cat && QUESTION_CATEGORY_LABELS[cat]
+              const isCustom = typeof q.id === 'string' && q.id.startsWith('custom-')
               return (
                 <div key={q.id || i} className="border border-gray-200 rounded-xl p-4">
                   <div className="flex items-center gap-2 mb-2 flex-wrap">
                     <span className="w-6 h-6 rounded-full text-xs font-bold flex items-center justify-center text-white"
                       style={{background: BRAND.GREEN_DARK}}>{i + 1}</span>
-                    {catLabel && (
-                      <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{background: catBadge!.bg, color: catBadge!.fg}}>
-                        {catLabel}
-                      </span>
+                    {isCustom ? (
+                      <select
+                        value={cat || 'background_validation'}
+                        onChange={e => {
+                          const updated = [...vals.screeningQuestions!]
+                          updated[i] = { ...updated[i], category: e.target.value as QuestionCategory }
+                          setValue('screeningQuestions', updated)
+                        }}
+                        className="text-xs px-2 py-0.5 rounded-full font-medium border-0 outline-none cursor-pointer focus:ring-2 focus:ring-emerald-300"
+                        style={{
+                          background: (catBadge || QUESTION_CATEGORY_BADGE.background_validation).bg,
+                          color:      (catBadge || QUESTION_CATEGORY_BADGE.background_validation).fg,
+                        }}>
+                        {Object.entries(QUESTION_CATEGORY_LABELS).map(([value, label]) => (
+                          <option key={value} value={value}>{label}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      catLabel && (
+                        <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{background: catBadge!.bg, color: catBadge!.fg}}>
+                          {catLabel}
+                        </span>
+                      )
                     )}
                     <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 capitalize">{q.type}</span>
                     <button onClick={() => setValue('screeningQuestions', vals.screeningQuestions!.filter((_, j) => j !== i))}
@@ -1090,8 +1125,14 @@ export function JobWizard({ mode, initialJob }: JobWizardProps) {
                       setValue('screeningQuestions', updated)
                     }}
                     rows={2}
-                    className="w-full text-sm text-gray-800 bg-transparent resize-none outline-none border-b border-gray-100 focus:border-emerald-300 transition-colors pb-1"
+                    placeholder={isCustom ? 'Type your question here...' : ''}
+                    className={`w-full text-sm text-gray-800 bg-transparent resize-none outline-none border-b transition-colors pb-1 ${
+                      !q.questionTextEn?.trim() ? 'border-red-300 focus:border-red-400' : 'border-gray-100 focus:border-emerald-300'
+                    }`}
                   />
+                  {!q.questionTextEn?.trim() && (
+                    <p className="text-xs text-red-500 mt-1">Question text is required.</p>
+                  )}
                   {q.questionTextAr && (
                     <details className="mt-2">
                       <summary className="text-xs text-gray-400 cursor-pointer hover:text-gray-600">Show Arabic version</summary>
@@ -1108,6 +1149,7 @@ export function JobWizard({ mode, initialJob }: JobWizardProps) {
         {vals.screeningQuestions?.length > 0 && (
           <div>
             <button type="button"
+              disabled={firstEmptyQuestionIdx() >= 0}
               onClick={() => {
                 const newQ = {
                   id: `custom-${Date.now()}`,
@@ -1119,10 +1161,13 @@ export function JobWizard({ mode, initialJob }: JobWizardProps) {
                 }
                 setValue('screeningQuestions', [...(vals.screeningQuestions || []), newQ])
               }}
-              className="w-full border-2 border-dashed border-gray-200 rounded-xl py-3 text-sm font-medium text-gray-500 hover:border-emerald-400 hover:text-emerald-700 transition-colors">
+              className="w-full border-2 border-dashed border-gray-200 rounded-xl py-3 text-sm font-medium text-gray-500 hover:border-emerald-400 hover:text-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-gray-200 disabled:hover:text-gray-500">
               + Add Custom Question
             </button>
             <p className="text-xs text-gray-400 mt-2 leading-relaxed">
+              {firstEmptyQuestionIdx() >= 0
+                ? `Finish the empty question above before adding another. `
+                : ''}
               Custom questions are English-only in this release. Candidates on Arabic will receive the English version. Arabic auto-translation coming in Phase 7.
             </p>
           </div>
