@@ -305,6 +305,16 @@ export function CandidatePanel({
                         </div>
                         <p className="text-xs font-semibold text-gray-700 mt-1">CV Screening Score</p>
                         <p className="text-[10px] text-gray-500">Live re-score · skills + experience</p>
+                        {(previewScore.skillsScore != null || previewScore.experienceScore != null) && (
+                          <div className="flex items-center gap-2 mt-2 justify-center">
+                            <span className="text-[11px] px-1.5 py-0.5 rounded font-semibold" style={{ background: '#FFF7E0', color: '#92400E' }}>
+                              Skills <b>{previewScore.skillsScore ?? '—'}</b>
+                            </span>
+                            <span className="text-[11px] px-1.5 py-0.5 rounded font-semibold" style={{ background: '#FFF7E0', color: '#92400E' }}>
+                              Experience <b>{previewScore.experienceScore ?? '—'}</b>
+                            </span>
+                          </div>
+                        )}
                       </div>
                       <div className="w-px h-14 bg-amber-200/70" />
                       <div className="flex flex-col gap-1 opacity-60">
@@ -375,6 +385,16 @@ export function CandidatePanel({
                     </div>
                     <p className="text-xs font-semibold text-gray-700 mt-1">CV Screening Score</p>
                     <p className="text-[10px] text-gray-500">Skills + experience match</p>
+                    {((candidate as any).skillsScore != null || (candidate as any).experienceScore != null) && (
+                      <div className="flex items-center gap-2 mt-2 justify-center">
+                        <span className="text-[11px] px-1.5 py-0.5 rounded font-semibold" style={{ background: '#FFF7E0', color: '#92400E' }}>
+                          Skills <b>{(candidate as any).skillsScore ?? '—'}</b>
+                        </span>
+                        <span className="text-[11px] px-1.5 py-0.5 rounded font-semibold" style={{ background: '#FFF7E0', color: '#92400E' }}>
+                          Experience <b>{(candidate as any).experienceScore ?? '—'}</b>
+                        </span>
+                      </div>
+                    )}
                   </div>
                   <div className="w-px h-14 bg-amber-200/70" />
                   <div className="flex flex-col gap-1 opacity-60">
@@ -568,6 +588,7 @@ export function CandidatePanel({
                         { label: 'Visa Status', value: candidate.visaStatus || 'Not stated' },
                         { label: 'Experience', value: candidate.yearsExperience != null ? `${candidate.yearsExperience} years` : 'Unknown' },
                         { label: 'Email', value: candidate.email || 'Not provided' },
+                        { label: 'Phone', value: (candidate as any).phoneNumber || 'Not provided' },
                         { label: 'WhatsApp', value: whatsappNumber || '—' },
                         { label: 'Source', value: (candidate.dataTags as any)?.sourceChannel || candidate.sourceChannel || 'Direct' },
                       ].map(({ label, value }) => (

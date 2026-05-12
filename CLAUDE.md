@@ -36,7 +36,7 @@ Saad orchestrates five specialised AI advisors, each in a separate Claude chat. 
 - Second demo: **DigyCorp** (direct employer variant)
 - Target: UAE + KSA large recruitment agencies
 - Repo: github.com/saadkarim12/hireiq
-- Current tag: v1.12.0
+- Current tag: v1.13.0
 
 ## Tech Stack
 - **Frontend**: Next.js 14 (App Router), TypeScript, Tailwind, TanStack Query, shadcn/ui
@@ -98,12 +98,12 @@ cd ~/hireiq/frontend && npm run dev
   TOKEN=$(curl -s -X POST http://localhost:3001/api/v1/auth/dev-login -H 'Content-Type: application/json' -d '{"email":"admin@saltrecruitment.ae"}' | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['accessToken'])")
   ```
 
-## Current Product State (v1.6.0)
+## Current Product State (v1.13.0)
 
 ### Working Features
 1. **Job Creation** — 4-step wizard (Role Basics → JD Builder → Screening Criteria → Baseline Questions)
 2. **CV Inbox** — Upload → AI parse → Score → Review drawer → Accept / Invite WhatsApp / Reject. First stage history entry tagged `entryPath: 'cv_inbox'` (v1.11.2).
-3. **Talent Pool** — Deduped by identity (Sprint 5). Click candidate → drawer with score block + clickable Application History (v1.11.2) showing score breakdown / AI rec / rejection reason per past job. With job selected: drawer fires LIVE Claude `/preview-score` against THIS job (v1.11.3) — gold "Match for: <Job>" card with fresh cvMatchScore + mustHaveSkills evidence + hardFilterPass + AI rec. Single CTA: `✅ Approve to L1` (skips Applied, fires WhatsApp screening directly). Dupe guard at insert (v1.11.1) prevents same identity being added twice to same job. React Query session-caches preview-score by (candidateId, jobId) to avoid re-billing Claude on drawer re-opens.
+3. **Talent Pool** — Deduped by identity (Sprint 5). Click candidate → drawer with score block + clickable Application History (v1.11.2) showing score breakdown / AI rec / rejection reason per past job. With job selected: recruiter clicks "🔍 Re-parse & re-score" → fires LIVE Claude `/preview-score-cv` → gold "Match for: <Job>" card with fresh `cvScreeningScore` + skills/experience pills + `evidence.skillsBreakdown` chips + derived `hardFilterPass` + AI rec. Single CTA: `✅ Approve to L1` (skips Applied, fires WhatsApp screening directly). Dupe guard at insert (v1.11.1) prevents same identity being added twice to same job. React Query session-caches preview-score by (candidateId, jobId) to avoid re-billing Claude on drawer re-opens.
 4. **Job Pipeline** — Funnel summary at top + Kanban below with columns:
    - Applied (maps: applied, evaluated, screening)
    - L1 — CV Screened (maps: shortlisted)
@@ -113,20 +113,23 @@ cd ~/hireiq/frontend && npm run dev
 5. **Dashboard v3** — 8 KPIs with period filter (Month/Quarter/6M/Year) + Recent Activity feed
 6. **WhatsApp Mock** — at http://localhost:3003/mock
 7. **User Flow** — Two parallel flows (CV Inbox + Talent Pool) documented in `docs/HireIQ_User_Flow_v1.1.docx`
-8. **Public Application Links (v1.12.0)** — Each Job has an `applicationToken` (64-char hex, regenerable). Recruiter copies the URL `${PUBLIC_APP_URL}/apply/<token>` from the job-view page and shares on LinkedIn / outreach. Public route at `/apply/[token]` (outside `(dashboard)` group, no auth, no sidebar) renders job + dropzone + screening Qs + consent. Submissions go through honeypot → Turnstile (env-gated) → magic-byte file sniff → Zod validation → dupe check (jobId+email, 409) → AI extract-text → AI parse-cv → cheap code-only hard-filter (years + 70% required-skills substring match). Pass → Candidate at `applied` with `entryPath:'public_link'` + async Claude `score-cv` fires. Fail → Candidate at `rejected` with `hardFilterFailReason`, NO Claude spend. Candidate ALWAYS sees generic "received" — pass/fail never leaks. Per-IP limits: 60/min GET, 5/hr + 10/day POST. Recruiter can toggle `isLinkActive` or regenerate the token (old URL dies instantly). CVs are parse-and-discard (matches bulk-upload — file persistence deferred to Phase 7 Azure Blob).
+8. **Public Application Links (v1.12.0, v1.13.0 flow update)** — Each Job has an `applicationToken` (64-char hex, regenerable). Recruiter copies the URL `${PUBLIC_APP_URL}/apply/<token>` from the job-view page and shares on LinkedIn / outreach. Public route at `/apply/[token]` (outside `(dashboard)` group, no auth, no sidebar) renders job + dropzone + screening Qs + consent. Submissions go through honeypot → Turnstile (env-gated) → magic-byte file sniff → Zod validation → dupe check (jobId+email, 409) → AI extract-text → AI parse-cv → Candidate row at `applied` + async `/score-cv`. **v1.13.0 removed the cheap code-only pre-filter** (`cheap-filter.ts` deleted). Every submission now goes through Claude scoring; the `<40` auto-reject inside `/score-cv` is the only gate. Spam defense is rate-limit + honeypot + Turnstile + magic-byte. Candidate ALWAYS sees generic "received" — pass/fail/dupe never leak. Per-IP limits: 60/min GET, 5/hr + 10/day POST. Recruiter can toggle `isLinkActive` or regenerate the token (old URL dies instantly). CVs are parse-and-discard (file persistence deferred to Phase 7 Azure Blob).
+9. **CV Inbox listing endpoint (v1.13.0)** — `GET /cv-inbox?status=all|accepted|rejected&maxDays=7&jobId=…` returns one row per (jobId, person), NOT deduped. Drives the new accepted/rejected tabs in the CV Inbox UI and the "X of Y scored" progress counter after bulk upload (polls until `cvScreeningScore` populates).
 
-### Scoring Model (CRITICAL — Phase 6k reworked)
+### Scoring Model (CRITICAL — v1.13.0 reworked)
 Two-stage scoring aligned to kanban stages:
-- **Applied (CV-only)**: `cvMatchScore` = Skills (60%) + Experience (40%). NO commitment, salary, or composite yet. Endpoint: `POST /api/v1/ai/score-cv`.
-- **L1 (post-WhatsApp, after simulation completes)**: Full composite = CV Match (40%) + Commitment (40%) + Salary Fit (20%). Endpoint: `POST /api/v1/ai/score`.
+- **Applied (CV-only, v1.13.0)**: `cvScreeningScore` = `(skillsScore + experienceScore) / 2`. Two factors, equal weight. `skillsScore` is a 0-100 **semantic** match (counts synonyms, real project usage, achievements — not just keyword presence). `experienceScore` is a 0-100 fit vs job's minimum years (meeting = 80+, below scales down proportionally). The legacy `cvMatchScore` column is still written (same value as `cvScreeningScore`) so the post-WhatsApp composite formula keeps working. Endpoint: `POST /api/v1/ai/score-cv`.
+- **L1 (post-WhatsApp, after simulation completes)**: Full composite = CV Match (40%) + Commitment (40%) + Salary Fit (20%). Endpoint: `POST /api/v1/ai/score`. Schema unchanged — still uses `mustHaveSkills` evidence shape.
+- **Hard filter** is now derived: `hardFilterPass = cvScreeningScore >= 40`. There is no longer a separate Claude-driven "missing must-have" verdict at the Applied stage. Missing required skills are still surfaced as evidence chips in the drawer (`evidence.skillsBreakdown[].found=false`).
+- **Auto-reject inside `/score-cv`**: if `cvScreeningScore < 40` OR the candidate has no email AND no phone, the row is moved to `pipelineStage='rejected'` with `rejectionReason='low_screening_score'` or `'no_contact'`. Recruiter still sees the row in the Rejected tab.
 - Talent Pool shows fresh CV re-score for selected job.
 
 ### AI Recommendation Logic (per transition)
-**Applied → L1 CV Screened** — `recommendForL1` (CV-only signals):
-- `!hardFilterPass` → **reject** ("Missing must-have: <skill>")
-- `cvMatchScore < 55` → **reject** ("CV match weak — doesn't meet role requirements")
-- `cvMatchScore 55-74` → **hold** ("Borderline CV match — review carefully")
-- `cvMatchScore >= 75` → **advance** ("Strong CV match — ready for WhatsApp screening")
+**Applied → L1 CV Screened** — `recommendForL1` (CV-only signals, v1.13.0 bands):
+- `cvScreeningScore < 40` → **reject** (also auto-routes to Rejected tab on insert)
+- `cvScreeningScore 40-54` → **weak_match** (sits in Accepted tab, recruiter must review)
+- `cvScreeningScore 55-74` → **hold** (borderline)
+- `cvScreeningScore >= 75` → **advance** (strong match)
 
 **L1 → L2 WA Screened** — `recommendForL2` (full composite + commitment):
 - `!hardFilterPass` → **reject**
@@ -173,6 +176,21 @@ One primary button per drawer, label follows the next stage: **"✅ Approve to L
 Plus 10 Cloud Architect pipeline candidates (Omar Farouk, Ahmed Al-Rashidi, Sarah Mitchell, etc.)
 
 ## Shipped History
+
+### 2026-05-11 — v1.13.0 CV Screening Refactor
+
+Two-factor semantic scoring replaces the previous three-component (relevancy + skills + experience) model. New flow: no cheap pre-filter, no Claude-driven hard-filter; the `<40` floor inside `/score-cv` is the only gate.
+
+- **Schema** (migration `20260511211404_cv_screening_refactor`): added `Candidate.phoneNumber` (VARCHAR 30), `experienceScore`, `skillsScore`, `cvScreeningScore` (all SMALLINT, nullable), `scoringAttempts` (SMALLINT, default 0). Legacy `cvMatchScore` kept for the post-WhatsApp composite formula — `/score-cv` writes the same value to both columns so downstream scoring is unaffected.
+- **ai-service.ts**: `APPLIED_SCORE_WEIGHTS` simplified to `{ SKILLS: 0.5, EXPERIENCE: 0.5 }`. `SKILLS_DEFINITION` documents semantic-match wording (counts synonyms + project usage, penalises bare keyword stuffing). `CV_SCORING_TOOL` now returns only `skillsScore`, `experienceScore`, `evidence.skillsBreakdown[]`, `evidence.experience`, `parseConfidence`, `authenticityFlag`, `dataTags`. `hardFilterPass`/`hardFilterFailReason` no longer part of the tool — derived in code from the screening threshold.
+- **Recommendation bands** (`recommendForL1`): `<40` reject · `40-54` `weak_match` (new band — sits in Accepted, recruiter must review) · `55-74` hold · `>=75` advance.
+- **`/score-cv` auto-routing**: `cvScreeningScore<40` OR no-email-and-no-phone → moves the row to `rejected` with `rejectionReason='low_screening_score'` or `'no_contact'`. `scoringAttempts` is incremented at the START of the request so a row that always errors stops looping at 3 retries.
+- **Bulk-upload + public-apply rewired**: both now call `/score-cv` directly (was `/score` for the full composite). Public-apply: deleted the `cheap-filter.ts` pre-filter; every CV goes to Claude. Bulk-upload: same identity to a DIFFERENT job is now allowed — creates a new Candidate row. Dedup only fires within `(agencyId, jobId, email)`. Both flows now use `lib/contact-reuse.ts:fillContactFromHistory` to copy `fullName`/`phoneNumber` from prior rows of the same person at the same agency.
+- **Scheduler** (`scheduler/index.ts`): the 5-minute `/score` queue is replaced with a 1-minute "no CV left behind" sweeper. Picks up rows where `pipelineStage IN (applied, evaluated)` AND `cvScreeningScore IS NULL` AND `scoringAttempts < 3` AND `createdAt < now - 2 min`. After 3 failed attempts, marks `dataTags.scoringFailed=true` and surfaces the row for recruiter intervention — does NOT auto-reject (failure is on our side, not the candidate's).
+- **CV Inbox listing** (`GET /cv-inbox`): new endpoint returning one row per (jobId, person), NOT deduped. Status param `accepted | rejected | all`. Drives the new accepted/rejected tabs and the upload-progress poller.
+- **Frontend**: `AiRecommendation` type gains `'weak_match'` (orange badge). `CandidatePanel` shows the two component scores (Skills / Experience pills) beside the headline number. Phone field added to Key Details. Inbox upload poller now polls `/cv-inbox` and counts rows where `cvScreeningScore != null` as scored.
+- **Dead code removed**: `backend/src/core-api/lib/cheap-filter.ts` (no callers), `SCORE_TOOLS` export in `claude-client.ts` (unused after `score_candidate` moved to local `SCORE_TOOLS_V2`), `RECOMMENDATION_LABELS` (added speculatively, never imported).
+- **JobWizard polish** (`44fff18`): Step 4 now blocks Save if a screening question has empty text; inline error + amber border on the offending row. Prevents shipping jobs with placeholder questions to public-apply.
 
 ### 2026-04-19 — Phase 6j + 6k
 **v1.7.0 — Phase 6j** WhatsApp Screening Simulation. One-click simulate fires 5 canned answers (60% strong / 25% mixed / 15% vague). Claude evaluates → full composite → aiRecommendation. Mock page retained as admin/demo override.
@@ -224,7 +242,7 @@ Plus 10 Cloud Architect pipeline candidates (Omar Farouk, Ahmed Al-Rashidi, Sara
 - **Pass / fail outcomes**: pass → `pipelineStage='applied'`, `entryPath:'public_link'`, async fire-and-forget `score-cv` to AI engine (mirrors `bulk-upload.ts:162` pattern). Fail → `pipelineStage='rejected'`, `hardFilterFailReason` populated, `rejectedFromStage='applied'`, `rejectionReason='auto_filter'`. Auto-rejects NEVER bill Claude — gating decision was deliberate (see fork B in plan).
 - **Privacy**: candidate ALWAYS sees a generic "Application received" 200 response. Pass / fail / dupe are never disclosed to the submitter. Honeypot trip also returns generic 200 so bots don't learn the trap exists.
 - **Recruiter UI** (`frontend/src/app/(dashboard)/jobs/[id]/view/page.tsx`): new gold-bordered "Public Application Link" card on active jobs only. Read-only URL input + Copy / Open / Regenerate buttons + active toggle. Regenerate has a confirm modal warning that existing shared links break instantly. Backed by `POST /jobs/:id/regenerate-application-token` and `PATCH /jobs/:id/link-status`.
-- **Public page** (`frontend/src/app/apply/[token]/`): server component fetches job, client component renders form. Sits OUTSIDE `(dashboard)` group so no sidebar/topbar. Hand-rolled HTML5 dropzone (no extra dep). Hidden honeypot field positioned off-screen with `tabIndex={-1}` + `autoComplete=off`. Turnstile widget conditionally rendered when `NEXT_PUBLIC_TURNSTILE_SITE_KEY` is set. OG `<title>` for LinkedIn share previews.
+- **Public page** (`frontend/src/app/apply/[token]/`): server component fetches job, client component renders form. Sits OUTSIDE `(dashboard)` group so no sidebar/topbar. Hand-rolled HTML5 dropzone (no extra dep). Hidden honeypot field positioned off-screen with `tabIndex={-1}` + `autoComplete=off`. Turnstile widget conditionally rendered when `NEXT_PUBLIC_TURNSTILE_SITE_KEY` is set. OG `<title>` for LinkedIn share previews. JD rendered inside a collapsible **"Role Overview"** card (native `<details>/<summary>`, closed by default) so the page opens on the title + key facts + apply form instead of a wall of text — keeps it a server component, zero JS cost.
 - **CV file persistence**: parse-and-discard (matches bulk-upload). Bytes only in memory during request; only the parsed `cvStructured` JSON persists. Real storage (Azure Blob in UAE North) deferred to Phase 7 deploy.
 - **Decisions explicitly NOT taken** (vs spec): no CSRF (no session to forge against; rate-limit + CAPTCHA + honeypot cover the actual threat), no `file-type` package (ESM-only, breaks ts-node — magic-byte sniffer is hand-rolled in `lib/file-validation.ts` instead), no cookie-based "already applied" state (DB is source of truth via 409). All three are documented in the design forks.
 - **E2E verified**: pass-filter submission → Sarah Mitchell at `applied`, async Claude scored 94/100 + `advance` recommendation. Fail-filter submission → `rejected` with "Below minimum experience (need 5y, candidate has 0y)". Dupe → 409. Honeypot → silent 200, no row. Magic-byte mismatch → 400 BAD_FILE, no row. Inactive link → 404. Regenerate → old token 404, new token 200. PATCH link-status → toggle persisted. Frontend `/apply/<token>` returns 200 with proper OG title.

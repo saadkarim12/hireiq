@@ -109,32 +109,61 @@ cron.schedule('0 9 * * *', async () => {
   }
 })
 
-// ── CRON: AI scoring queue — every 5 minutes ─────────────────────────────
-cron.schedule('*/5 * * * *', async () => {
-  const unscored = await prisma.candidate.findMany({
+// ── CRON: CV screening retry sweep — every minute (v1.13.0) ──────────────
+// "No CV left behind." Picks up candidates whose initial score-cv call
+// didn't land (Claude error, ai-engine offline, etc.) and retries up to 3x.
+// Eligibility: pipelineStage in (applied, evaluated), cvScreeningScore IS
+// NULL, scoringAttempts < 3, and the row is older than 2 minutes (so we
+// don't race the synchronous bulk-upload / public-apply fire-and-forget).
+const RETRY_CAP = 3
+const RETRY_DELAY_MS = 2 * 60 * 1000
+
+cron.schedule('* * * * *', async () => {
+  const cutoff = new Date(Date.now() - RETRY_DELAY_MS)
+
+  const stalled = await prisma.candidate.findMany({
     where: {
-      pipelineStage: 'cv_received',
-      compositeScore: null,
-      consentGiven: true,
+      pipelineStage:    { in: ['applied', 'evaluated'] },
+      cvScreeningScore: null,
+      scoringAttempts:  { lt: RETRY_CAP },
+      createdAt:        { lt: cutoff },
     },
-    take: 10,
+    select: { id: true, jobId: true, scoringAttempts: true, fullName: true },
+    take: 20,
   })
 
-  if (unscored.length === 0) return
+  if (stalled.length === 0) return
+  logger.info(`Retry sweep: ${stalled.length} candidates with null cvScreeningScore`)
 
-  logger.info(`Processing ${unscored.length} unscored candidates...`)
   const AI = `http://localhost:${process.env.AI_ENGINE_PORT || 3002}`
-
-  for (const candidate of unscored) {
+  for (const c of stalled) {
     try {
-      await axios.post(`${AI}/api/v1/ai/score`, {
-        candidateId: candidate.id,
-        jobId: candidate.jobId,
-      }, { timeout: 60000 })
-      logger.info(`Scored: ${candidate.id}`)
+      await axios.post(`${AI}/api/v1/ai/score-cv`, { candidateId: c.id, jobId: c.jobId }, { timeout: 60000 })
+      logger.info(`Retry-scored ${c.id} (attempt ${c.scoringAttempts + 1})`)
     } catch (err: any) {
-      logger.warn(`Score failed: ${candidate.id} — ${err.message}`)
+      logger.warn(`Retry failed ${c.id} (attempt ${c.scoringAttempts + 1}/${RETRY_CAP}): ${err?.message}`)
     }
+  }
+
+  // After 3 failed attempts, surface the row so a recruiter can intervene.
+  // Don't auto-reject — the failure is on our side, not the candidate's.
+  const burned = await prisma.candidate.findMany({
+    where: {
+      pipelineStage:    { in: ['applied', 'evaluated'] },
+      cvScreeningScore: null,
+      scoringAttempts:  { gte: RETRY_CAP },
+    },
+    select: { id: true, fullName: true, dataTags: true },
+    take: 20,
+  })
+  for (const c of burned) {
+    const tags = (c.dataTags as any) || {}
+    if (tags.scoringFailed) continue
+    await prisma.candidate.update({
+      where: { id: c.id },
+      data:  { dataTags: { ...tags, scoringFailed: true, scoringFailedAt: new Date().toISOString() } },
+    })
+    logger.error(`Scoring permanently failed for ${c.id} (${c.fullName || 'unknown'}) after ${RETRY_CAP} attempts`)
   }
 })
 

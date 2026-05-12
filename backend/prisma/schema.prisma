@@ -212,6 +212,7 @@ model Candidate {
   consentMessageId            String?           @map("consent_message_id") @db.VarChar(100)
   fullName                    String?           @map("full_name") @db.VarChar(300)
   email                       String?           @db.VarChar(300)
+  phoneNumber                 String?           @map("phone_number") @db.VarChar(30)
   currentRole                 String?           @map("current_role") @db.VarChar(300)
   yearsExperience             Int?              @map("years_experience") @db.SmallInt
   salaryExpectation           Int?              @map("salary_expectation")
@@ -223,6 +224,10 @@ model Candidate {
   authenticityFlag            AuthenticityFlag  @default(none) @map("authenticity_flag")
   commitmentScore             Int?              @map("commitment_score") @db.SmallInt
   cvMatchScore                Int?              @map("cv_match_score") @db.SmallInt
+  experienceScore             Int?              @map("experience_score") @db.SmallInt
+  skillsScore                 Int?              @map("skills_score") @db.SmallInt
+  cvScreeningScore            Int?              @map("cv_screening_score") @db.SmallInt
+  scoringAttempts             Int               @default(0) @map("scoring_attempts") @db.SmallInt
   salaryFitScore              Int?              @map("salary_fit_score") @db.SmallInt
   compositeScore              Int?              @map("composite_score") @db.SmallInt
   hardFilterPass              Boolean?          @map("hard_filter_pass")

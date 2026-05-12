@@ -18,15 +18,17 @@ const PENDING_LABEL: Partial<Record<PipelineStage | string, string>> = {
 }
 
 const REC_LABEL: Record<AiRecommendation, string> = {
-  advance: '✅ AI: Advance',
-  hold:    '⚠️ AI: Hold',
-  reject:  '❌ AI: Reject',
+  advance:    '✅ AI: Advance',
+  hold:       '⚠️ AI: Hold',
+  weak_match: '🟠 AI: Weak match',
+  reject:     '❌ AI: Reject',
 }
 
 const REC_CLASS: Record<AiRecommendation, string> = {
-  advance: 'bg-green-50 text-green-700 border-green-200',
-  hold:    'bg-amber-50 text-amber-700 border-amber-200',
-  reject:  'bg-red-50 text-red-600 border-red-200',
+  advance:    'bg-green-50 text-green-700 border-green-200',
+  hold:       'bg-amber-50 text-amber-700 border-amber-200',
+  weak_match: 'bg-orange-50 text-orange-700 border-orange-200',
+  reject:     'bg-red-50 text-red-600 border-red-200',
 }
 
 interface Props {

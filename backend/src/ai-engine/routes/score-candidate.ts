@@ -30,17 +30,27 @@ function buildScoreInput(candidate: any, job: any) {
   }
 }
 
-// Translate a CvScoreResult into the recommendation engine input + missing-skills list.
+// Translate a CvScoreResult into the recommendation engine input.
+// Derives hardFilterPass from the 40% screening threshold and reports any
+// required skills Claude could not evidence so the recruiter sees the gap.
 function buildRecommendationInput(result: CvScoreResult) {
-  const missingSkills = (result.evidence?.mustHaveSkills || [])
+  const missingSkills = (result.evidence?.skillsBreakdown || [])
     .filter((s: any) => s && s.found === false)
     .map((s: any) => s.skill)
-  return recommendForL1({
-    cvMatchScore:         result.cvMatchScore,
-    hardFilterPass:       result.hardFilterPass,
-    hardFilterFailReason: result.hardFilterFailReason,
-    missingSkills,
-  })
+  const hardFilterPass = result.cvScreeningScore >= 40
+  const hardFilterFailReason = hardFilterPass
+    ? undefined
+    : `CV screening score ${result.cvScreeningScore} below 40% threshold${missingSkills.length ? ` — missing: ${missingSkills.slice(0, 3).join(', ')}` : ''}`
+  return {
+    rec: recommendForL1({
+      cvScreeningScore: result.cvScreeningScore,
+      hardFilterPass,
+      hardFilterFailReason,
+      missingSkills,
+    }),
+    hardFilterPass,
+    hardFilterFailReason,
+  }
 }
 
 // ── CV-only endpoint (Applied stage) — persists to DB ───────────────────────
@@ -53,23 +63,38 @@ scoreCandidateRoute.post('/score-cv', async (req, res) => {
     ])
     if (!candidate || !job) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Not found' } })
 
+    // Bump scoringAttempts at the start so failed Claude calls still count
+    // toward the retry cap (otherwise a row that always errors loops forever).
+    await prisma.candidate.update({
+      where: { id: candidateId },
+      data:  { scoringAttempts: { increment: 1 } },
+    })
+
     const result = await scoreCvAgainstJob(buildScoreInput(candidate, job))
-    const rec = buildRecommendationInput(result)
+    const { rec, hardFilterPass, hardFilterFailReason } = buildRecommendationInput(result)
+
+    const autoReject = result.cvScreeningScore < 40
+    const noContact = !candidate.email && !candidate.phoneNumber
 
     await prisma.candidate.update({
       where: { id: candidateId },
       data: {
-        cvMatchScore:         result.cvMatchScore,
-        // Deliberately NOT writing commitment/salary/composite — those come later
-        hardFilterPass:       result.hardFilterPass,
-        hardFilterFailReason: result.hardFilterFailReason ? String(result.hardFilterFailReason).slice(0, 200) : null,
+        skillsScore:          result.skillsScore,
+        experienceScore:      result.experienceScore,
+        cvScreeningScore:     result.cvScreeningScore,
+        cvMatchScore:         result.cvScreeningScore, // mirrored for downstream composite scoring
+        hardFilterPass,
+        hardFilterFailReason: hardFilterFailReason ? hardFilterFailReason.slice(0, 200) : null,
         authenticityFlag:     result.authenticityFlag || 'none',
+        ...(autoReject || noContact ? {
+          pipelineStage:   'rejected' as const,
+          rejectedFromStage: 'applied',
+          rejectionReason: noContact ? 'no_contact' : 'low_screening_score',
+        } : {}),
         dataTags: JSON.parse(JSON.stringify({
           ...(result.dataTags || {}),
           evidence:        result.evidence || {},
           parseConfidence: result.parseConfidence || 75,
-          // Component breakdown — exposes the 3 dimensions to UI without
-          // requiring a schema migration.
           scoreBreakdown:  result.scoreBreakdown,
         })),
         aiRecommendation:       rec?.recommendation || null,
@@ -78,8 +103,8 @@ scoreCandidateRoute.post('/score-cv', async (req, res) => {
       },
     })
 
-    logger.info(`Scored CV-only ${candidateId}: cvMatch=${result.cvMatchScore} (R${result.relevancyScore}/S${result.requiredSkillsScore}/E${result.experienceScore}) → rec=${rec?.recommendation || 'none'}`)
-    res.json({ success: true, data: { ...result, aiRecommendation: rec } })
+    logger.info(`Scored CV-only ${candidateId}: cvScreening=${result.cvScreeningScore} (S${result.skillsScore}/E${result.experienceScore}) → rec=${rec?.recommendation || 'none'}${autoReject ? ' [auto-rejected <40]' : ''}${noContact ? ' [no contact]' : ''}`)
+    res.json({ success: true, data: { ...result, aiRecommendation: rec, autoRejected: autoReject || noContact } })
   } catch (err: any) {
     logger.error('Score-CV error', { err: err.message })
     res.status(500).json({ success: false, error: { code: 'AI_ERROR', message: err.message } })
@@ -99,9 +124,9 @@ scoreCandidateRoute.post('/preview-score-cv', async (req, res) => {
     if (!candidate || !job) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Not found' } })
 
     const result = await scoreCvAgainstJob(buildScoreInput(candidate, job))
-    const rec = buildRecommendationInput(result)
+    const { rec } = buildRecommendationInput(result)
 
-    logger.info(`Preview-scored ${candidateId} for job ${jobId}: cvMatch=${result.cvMatchScore} → rec=${rec?.recommendation || 'none'}`)
+    logger.info(`Preview-scored ${candidateId} for job ${jobId}: cvScreening=${result.cvScreeningScore} (S${result.skillsScore}/E${result.experienceScore}) → rec=${rec?.recommendation || 'none'}`)
     res.json({ success: true, data: { ...result, aiRecommendation: rec } })
   } catch (err: any) {
     logger.error('Preview-score-CV error', { err: err.message })

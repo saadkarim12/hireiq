@@ -125,36 +125,6 @@ export const CV_TOOLS: Anthropic.Tool[] = [
   },
 ]
 
-export const SCORE_TOOLS: Anthropic.Tool[] = [
-  {
-    name: 'score_candidate',
-    description: 'Score and tag a candidate against a job description',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        commitmentScore:  { type: 'number', description: 'Score 0-100 from screening answers' },
-        cvMatchScore:     { type: 'number', description: 'Score 0-100 CV vs JD match' },
-        salaryFitScore:   { type: 'number', description: 'Score 0-100 salary alignment' },
-        compositeScore:   { type: 'number', description: 'Weighted composite 0-100' },
-        hardFilterPass:   { type: 'boolean' },
-        hardFilterFailReason: { type: 'string' },
-        authenticityFlag: { type: 'string', enum: ['none','low','medium','high'] },
-        dataTags: {
-          type: 'object',
-          properties: {
-            seniorityLevel:      { type: 'string' },
-            roleCategory:        { type: 'string' },
-            languageCapability:  { type: 'string' },
-            availability:        { type: 'string' },
-          },
-        },
-        flags: { type: 'array', items: { type: 'string' }, description: 'Any concerns or flags' },
-      },
-      required: ['commitmentScore','cvMatchScore','salaryFitScore','compositeScore','hardFilterPass','dataTags'],
-    },
-  },
-]
-
 export const SUMMARY_TOOLS: Anthropic.Tool[] = [
   {
     name: 'generate_candidate_summary',

@@ -8,28 +8,29 @@ import type Anthropic from '@anthropic-ai/sdk'
 import { callClaudeWithTool } from './claude-client'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Score weights (Applied stage — CV-only)
+// CV Screening weights (Applied stage — CV-only) — v1.13.0 refactor
 // ─────────────────────────────────────────────────────────────────────────────
-// cvMatchScore = relevancy*W_RELEVANCY + skills*W_SKILLS + experience*W_EXPERIENCE
-// Weights MUST sum to 1.0. Adjust here, no other code change required.
+// cvScreeningScore = (skillsScore + experienceScore) / 2
+// Two factors, equal weight. Adjust here, no other code change required.
 
 export const APPLIED_SCORE_WEIGHTS = {
-  RELEVANCY:  0.40,
-  SKILLS:     0.40,
-  EXPERIENCE: 0.20,
+  SKILLS:     0.50,
+  EXPERIENCE: 0.50,
 } as const
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Relevancy definition — what Claude is asked to combine into the relevancy score
+// Semantic skills definition — what skillsScore means to Claude
 // ─────────────────────────────────────────────────────────────────────────────
-// Two signals averaged: role-fit (career trajectory matches the role family /
-// seniority) AND semantic JD↔CV overlap (CV content actually addresses the JD).
-// Edit the wording here to retune what relevancy means.
+// The skills score is a SEMANTIC match, not keyword search. "Built REST APIs
+// in Node.js" should count toward a "Node.js" or "backend development"
+// requirement. Reward demonstrated use (projects, achievements, timeline),
+// penalise bare keyword stuffing with no supporting evidence.
 
-export const RELEVANCY_DEFINITION = `Relevancy is the average of two signals:
-  (1) role-fit: does the candidate's career trajectory and seniority match this role family? (e.g. a Senior Cloud Architect CV scores high for a Cloud Architect role, low for a Finance Manager role)
-  (2) semantic JD↔CV overlap: how closely does the CV's content address what the JD actually asks for? Reward CVs that demonstrate the JD's responsibilities; penalise generic keyword stuffing.
-Output a single 0-100 relevancy score that is the average of these two signals.`
+export const SKILLS_DEFINITION = `Skills score is a 0-100 SEMANTIC match between the CV and the job's required skills:
+  - 100 = every required skill is clearly evidenced in the CV (real project usage, achievements, or measurable outcomes)
+  - 50 = roughly half of the required skills are evidenced, or all are mentioned weakly
+  - 0 = none of the required skills appear in any recognisable form
+Count synonyms and related technologies (e.g. "REST APIs in Node" → Node.js; "Azure DevOps pipelines" → CI/CD). Do NOT count bare keyword lists with no supporting work history. For each required skill, quote the CV phrase where it is evidenced, or set found=false.`
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Baseline question categories (Step 4 of job creation)
@@ -56,20 +57,15 @@ export const QUESTION_CATEGORY_LABELS: Record<QuestionCategory, string> = {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const CV_SCORING_SYSTEM_PROMPT = `You are HireIQ's CV screening engine for UAE and KSA recruitment.
-Score the CV on EXACTLY THREE dimensions, each 0-100:
+Score the CV on EXACTLY TWO dimensions, each 0-100:
 
-  1. RELEVANCY (weight ${APPLIED_SCORE_WEIGHTS.RELEVANCY * 100}%)
-     ${RELEVANCY_DEFINITION}
+  1. SKILLS (weight ${APPLIED_SCORE_WEIGHTS.SKILLS * 100}%)
+     ${SKILLS_DEFINITION}
 
-  2. REQUIRED SKILLS (weight ${APPLIED_SCORE_WEIGHTS.SKILLS * 100}%)
-     What fraction of the job's required skills are evidenced in the CV? 100 = every required skill is clearly demonstrated. 0 = none. For each must-have skill, quote the exact CV phrase where it appears, or set found=false with empty evidence.
+  2. EXPERIENCE (weight ${APPLIED_SCORE_WEIGHTS.EXPERIENCE * 100}%)
+     Compare candidate's years of experience against the job's minimum. Meeting the minimum = 80+. Significantly exceeding it = 90-100. Below the minimum scales down proportionally (50% short = 40, missing entirely = 0). Reason about the experience SEMANTICALLY — count years in roles that are clearly relevant to the job's domain more heavily than years in unrelated roles.
 
-  3. EXPERIENCE (weight ${APPLIED_SCORE_WEIGHTS.EXPERIENCE * 100}%)
-     Compare candidate's years of experience against the job's minimum. Meeting the minimum = 80+. Significantly exceeding it = 90-100. Below the minimum scales down proportionally (50% short = 40, missing entirely = 0).
-
-The aggregate cvMatchScore is computed by HireIQ from the three component scores using the weights above — DO NOT compute it yourself, just return the three components honestly.
-
-Hard filter: if any required skill is missing from the CV, set hardFilterPass=false with hardFilterFailReason naming the missing skill(s). Otherwise hardFilterPass=true.
+HireIQ averages the two component scores to produce cvScreeningScore — DO NOT compute the average yourself, just return the two components honestly.
 
 parseConfidence: 0=garbled / table-extracted / image PDF, 100=clean plain text.
 Flag AI-generated CVs: perfect JD keyword match, skills with no timeline support, generic achievement language → authenticityFlag medium/high.`
@@ -160,19 +156,16 @@ Coverage requirements:
 // TOOL SCHEMAS
 // ─────────────────────────────────────────────────────────────────────────────
 
-// CV scoring tool — returns the THREE components, hard-filter, evidence, tags.
-// HireIQ computes the aggregate cvMatchScore from the three components.
+// CV scoring tool — returns the TWO components, evidence, tags.
+// HireIQ averages the components to produce cvScreeningScore.
 export const CV_SCORING_TOOL: Anthropic.Tool = {
   name: 'score_cv',
-  description: 'Score a CV against a job on relevancy, required skills, and experience',
+  description: 'Score a CV against a job on semantic skills match and experience fit',
   input_schema: {
     type: 'object' as const,
     properties: {
-      relevancyScore:       { type: 'number', description: '0-100. Average of role-fit + JD↔CV semantic overlap' },
-      requiredSkillsScore:  { type: 'number', description: '0-100. Fraction of required skills evidenced in CV' },
-      experienceScore:      { type: 'number', description: '0-100. Fit vs job\'s minimum experience years' },
-      hardFilterPass:       { type: 'boolean' },
-      hardFilterFailReason: { type: 'string', description: 'If hardFilterPass=false, name the missing skill(s)' },
+      skillsScore:          { type: 'number', description: '0-100. Semantic match of CV against the job\'s required skills (counts synonyms, project usage, real evidence — not just keyword presence)' },
+      experienceScore:      { type: 'number', description: '0-100. Fit of candidate years/seniority vs job\'s minimum experience' },
       authenticityFlag:     { type: 'string', enum: ['none', 'low', 'medium', 'high'] },
       parseConfidence:      { type: 'number', description: '0-100, how cleanly the CV was parsed' },
       evidence: {
@@ -183,21 +176,21 @@ export const CV_SCORING_TOOL: Anthropic.Tool = {
             properties: {
               found:    { type: 'boolean' },
               years:    { type: 'number' },
-              evidence: { type: 'string' },
+              evidence: { type: 'string', description: 'One sentence justifying the experience score' },
             },
           },
-          mustHaveSkills: {
+          skillsBreakdown: {
             type: 'array',
+            description: 'Per required skill: whether semantically evidenced and the CV phrase that proves it',
             items: {
               type: 'object',
               properties: {
                 skill:    { type: 'string' },
                 found:    { type: 'boolean' },
-                evidence: { type: 'string' },
+                evidence: { type: 'string', description: 'Exact CV phrase showing the skill in use, or "" if not found' },
               },
             },
           },
-          relevancyEvidence: { type: 'string', description: 'One sentence justifying the relevancy score' },
           aiAlterationFlags: { type: 'array', items: { type: 'string' } },
         },
       },
@@ -210,7 +203,7 @@ export const CV_SCORING_TOOL: Anthropic.Tool = {
         },
       },
     },
-    required: ['relevancyScore', 'requiredSkillsScore', 'experienceScore', 'hardFilterPass', 'evidence', 'dataTags', 'parseConfidence'],
+    required: ['skillsScore', 'experienceScore', 'evidence', 'dataTags', 'parseConfidence'],
   },
 }
 
@@ -262,11 +255,8 @@ export const QUESTION_GENERATION_TOOL: Anthropic.Tool = {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface CvScoreComponents {
-  relevancyScore:       number
-  requiredSkillsScore:  number
+  skillsScore:          number
   experienceScore:      number
-  hardFilterPass:       boolean
-  hardFilterFailReason?: string
   authenticityFlag?:    'none' | 'low' | 'medium' | 'high'
   parseConfidence?:     number
   evidence?:            any
@@ -274,20 +264,18 @@ export interface CvScoreComponents {
 }
 
 export interface CvScoreResult extends CvScoreComponents {
-  cvMatchScore: number
+  cvScreeningScore: number
   scoreBreakdown: {
-    relevancy:  number
     skills:     number
     experience: number
     weights:    typeof APPLIED_SCORE_WEIGHTS
   }
 }
 
-export const computeCvMatchScore = (c: Pick<CvScoreComponents, 'relevancyScore' | 'requiredSkillsScore' | 'experienceScore'>): number =>
+export const computeCvScreeningScore = (c: Pick<CvScoreComponents, 'skillsScore' | 'experienceScore'>): number =>
   Math.round(
-    c.relevancyScore      * APPLIED_SCORE_WEIGHTS.RELEVANCY  +
-    c.requiredSkillsScore * APPLIED_SCORE_WEIGHTS.SKILLS     +
-    c.experienceScore     * APPLIED_SCORE_WEIGHTS.EXPERIENCE,
+    c.skillsScore     * APPLIED_SCORE_WEIGHTS.SKILLS +
+    c.experienceScore * APPLIED_SCORE_WEIGHTS.EXPERIENCE,
   )
 
 export async function scoreCvAgainstJob(args: {
@@ -302,14 +290,13 @@ export async function scoreCvAgainstJob(args: {
     'score_cv',
   )
 
-  const cvMatchScore = computeCvMatchScore(components)
+  const cvScreeningScore = computeCvScreeningScore(components)
 
   return {
     ...components,
-    cvMatchScore,
+    cvScreeningScore,
     scoreBreakdown: {
-      relevancy:  components.relevancyScore,
-      skills:     components.requiredSkillsScore,
+      skills:     components.skillsScore,
       experience: components.experienceScore,
       weights:    APPLIED_SCORE_WEIGHTS,
     },

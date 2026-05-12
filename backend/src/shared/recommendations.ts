@@ -8,7 +8,7 @@
 // L3 → Final Shortlist           — recommendForFinal (culture/final interview score) [stub — Phase 7]
 // Final → Hired                  — recommendForHired (offer acceptance) [stub — Phase 7]
 
-export type Recommendation = 'advance' | 'hold' | 'reject'
+export type Recommendation = 'advance' | 'hold' | 'weak_match' | 'reject'
 
 export type NextStageKey =
   | 'l1_cv_screened'
@@ -39,33 +39,43 @@ export const NEXT_STAGE_FOR: Record<string, NextStageKey | null> = {
 
 // ── Applied → L1 CV Screened ─────────────────────────────────────────────────
 // CV-only signals. Commitment + salary not collected yet at this stage.
+//
+// Bands (v1.13.0):
+//   < 40    reject     — auto-routed to Rejected tab on insert
+//   40-54   weak_match — sits in Accepted tab, recruiter must review
+//   55-74   hold       — borderline
+//   >= 75   advance    — strong match
 export interface L1Inputs {
-  cvMatchScore: number | null
+  cvScreeningScore: number | null
   hardFilterPass: boolean | null
   hardFilterFailReason?: string | null
   missingSkills?: string[]
 }
 
 export function recommendForL1(inputs: L1Inputs): RecommendationResult | null {
-  const { cvMatchScore, hardFilterPass, hardFilterFailReason, missingSkills } = inputs
+  const { cvScreeningScore, hardFilterPass, hardFilterFailReason, missingSkills } = inputs
 
-  if (cvMatchScore == null) return null
+  if (cvScreeningScore == null) return null
 
   if (hardFilterPass === false) {
     const missing = missingSkills?.length ? missingSkills.slice(0, 3).join(', ') : (hardFilterFailReason || 'requirements')
     return { recommendation: 'reject', reason: `Missing must-have: ${missing}`, stage: 'l1_cv_screened' }
   }
 
-  if (cvMatchScore < 55) {
-    return { recommendation: 'reject', reason: `CV match weak (${cvMatchScore}) — doesn't meet role requirements`, stage: 'l1_cv_screened' }
+  if (cvScreeningScore < 40) {
+    return { recommendation: 'reject', reason: `CV screening score ${cvScreeningScore} below 40% threshold`, stage: 'l1_cv_screened' }
   }
 
-  if (cvMatchScore >= 75) {
-    return { recommendation: 'advance', reason: `Strong CV match (${cvMatchScore}) — ready for WhatsApp screening`, stage: 'l1_cv_screened' }
+  if (cvScreeningScore >= 75) {
+    return { recommendation: 'advance', reason: `Strong CV match (${cvScreeningScore}) — ready for WhatsApp screening`, stage: 'l1_cv_screened' }
   }
 
-  // 55–74
-  return { recommendation: 'hold', reason: `Borderline CV match (${cvMatchScore}) — review carefully`, stage: 'l1_cv_screened' }
+  if (cvScreeningScore >= 55) {
+    return { recommendation: 'hold', reason: `Borderline CV match (${cvScreeningScore}) — review carefully`, stage: 'l1_cv_screened' }
+  }
+
+  // 40–54
+  return { recommendation: 'weak_match', reason: `Weak CV match (${cvScreeningScore}) — recruiter review required`, stage: 'l1_cv_screened' }
 }
 
 // ── L1 → L2 WA Screened ──────────────────────────────────────────────────────
@@ -151,6 +161,7 @@ export function recommendForHired(_inputs: any): RecommendationResult | null {
 // Route a candidate to the right recommender based on their current stage.
 export function computeRecommendationForCandidate(candidate: {
   pipelineStage: string
+  cvScreeningScore?: number | null
   cvMatchScore?: number | null
   compositeScore?: number | null
   commitmentScore?: number | null
@@ -163,14 +174,16 @@ export function computeRecommendationForCandidate(candidate: {
   const next = NEXT_STAGE_FOR[candidate.pipelineStage]
   if (!next) return null
 
-  const missingSkills = (candidate.dataTags?.evidence?.mustHaveSkills || [])
+  const evidence = candidate.dataTags?.evidence || {}
+  const skillsBreakdown = evidence.skillsBreakdown || evidence.mustHaveSkills || []
+  const missingSkills = skillsBreakdown
     .filter((s: any) => s && s.found === false)
     .map((s: any) => s.skill)
 
   switch (next) {
     case 'l1_cv_screened':
       return recommendForL1({
-        cvMatchScore:         candidate.cvMatchScore ?? null,
+        cvScreeningScore:     candidate.cvScreeningScore ?? candidate.cvMatchScore ?? null,
         hardFilterPass:       candidate.hardFilterPass ?? null,
         hardFilterFailReason: candidate.hardFilterFailReason ?? null,
         missingSkills,

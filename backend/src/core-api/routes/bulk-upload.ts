@@ -4,6 +4,7 @@ import multer from 'multer'
 import { prisma } from '../../shared/db'
 import { requireAuth, AuthRequest } from '../middleware/auth'
 import { logger } from '../../shared/logger'
+import { fillContactFromHistory } from '../lib/contact-reuse'
 import axios from 'axios'
 
 export const bulkUploadRouter = Router()
@@ -78,24 +79,48 @@ bulkUploadRouter.post('/bulk-upload', upload.array('cvFiles', 50), async (req: A
       if (!cvStructured?.fullName) { failed++; continue }
 
       const normalizedEmail = normalizeEmail(cvStructured.email)
+      const normalizedPhone = typeof cvStructured.phone === 'string' ? cvStructured.phone.trim().slice(0, 30) : null
+
+      // Decide the target job FIRST, then dedup against (agencyId, jobId, email).
+      // v1.13.0: same identity to a DIFFERENT job is allowed and creates a new
+      // Candidate row. Dedup only fires for same person applying to same job.
+      const jobRecord = jobId
+        ? await prisma.job.findUnique({ where: { id: jobId }, select: { id: true, title: true, hiringCompany: true } })
+        : await prisma.job.findFirst({
+            where: { agencyId: req.user!.agencyId, status: { not: 'archived' } },
+            orderBy: { createdAt: 'desc' },
+            select: { id: true, title: true, hiringCompany: true },
+          })
+      const targetJobId = jobRecord?.id
+      if (!targetJobId) { failed++; continue }
+
       if (normalizedEmail) {
-        const exists = await prisma.candidate.findFirst({ where: { agencyId: req.user!.agencyId, email: normalizedEmail } })
+        const exists = await prisma.candidate.findFirst({
+          where: { agencyId: req.user!.agencyId, jobId: targetJobId, email: normalizedEmail },
+        })
         if (exists) {
           if (exists.pipelineStage === 'rejected') {
-            const targetJobId = jobId || exists.jobId
             const prevHistory = Array.isArray(exists.pipelineStageHistory) ? (exists.pipelineStageHistory as any[]) : []
             await prisma.candidate.update({
               where: { id: exists.id },
               data: {
-                jobId: targetJobId,
                 pipelineStage: 'applied',
                 rejectedFromStage: null,
+                rejectionReason: null,
+                hardFilterPass: null,
+                hardFilterFailReason: null,
+                skillsScore: null,
+                experienceScore: null,
+                cvScreeningScore: null,
+                cvMatchScore: null,
+                scoringAttempts: 0,
                 conversationState: 'completed',
                 aiRecommendation: null,
                 aiRecommendationReason: null,
                 aiRecommendationStage: null,
                 currentRole: cvStructured.currentRole || exists.currentRole,
                 yearsExperience: cvStructured.yearsExperienceTotal ?? exists.yearsExperience,
+                phoneNumber: normalizedPhone || exists.phoneNumber,
                 cvStructured: JSON.parse(JSON.stringify(cvStructured).slice(0, 65000)) as any,
                 createdAt: new Date(),
                 deletionScheduledAt: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000),
@@ -108,9 +133,7 @@ bulkUploadRouter.post('/bulk-upload', upload.array('cvFiles', 50), async (req: A
                 }])) as any,
               },
             })
-            if (jobId) {
-              axios.post(`${AI_URL}/api/v1/ai/score`, { candidateId: exists.id, jobId: targetJobId }, { timeout: 60000 }).catch(() => {})
-            }
+            axios.post(`${AI_URL}/api/v1/ai/score-cv`, { candidateId: exists.id, jobId: targetJobId }, { timeout: 60000 }).catch(() => {})
             reopened++
             continue
           }
@@ -119,24 +142,20 @@ bulkUploadRouter.post('/bulk-upload', upload.array('cvFiles', 50), async (req: A
       }
 
       const crypto = require('crypto')
-      const hash = crypto.createHash('sha256').update(normalizedEmail || cvStructured.phone || file.originalname + Date.now()).digest('hex')
+      const hash = crypto.createHash('sha256').update(normalizedEmail || normalizedPhone || file.originalname + Date.now()).digest('hex')
 
-      const jobRecord = jobId
-        ? await prisma.job.findUnique({ where: { id: jobId }, select: { id: true, title: true, hiringCompany: true } })
-        // Talent Pool fallback (no jobId): pick the most recent non-archived
-        // job so we never silently route uploads into an archived job.
-        : await prisma.job.findFirst({
-            where: { agencyId: req.user!.agencyId, status: { not: 'archived' } },
-            orderBy: { createdAt: 'desc' },
-            select: { id: true, title: true, hiringCompany: true },
-          })
-      const defaultJob = jobRecord?.id
-      if (!defaultJob) { failed++; continue }
+      const reused = await fillContactFromHistory(req.user!.agencyId, {
+        fullName:     cvStructured.fullName,
+        email:        normalizedEmail,
+        phoneNumber:  normalizedPhone,
+        waNumberHash: hash,
+      })
 
       const candidate = await prisma.candidate.create({ data: {
-        agencyId: req.user!.agencyId, jobId: defaultJob,
-        waNumberHash: hash, waNumberEncrypted: cvStructured.phone ? Buffer.from(cvStructured.phone).toString('base64') : 'bulk_upload',
-        fullName: cvStructured.fullName, email: normalizedEmail,
+        agencyId: req.user!.agencyId, jobId: targetJobId,
+        waNumberHash: hash, waNumberEncrypted: normalizedPhone ? Buffer.from(normalizedPhone).toString('base64') : 'bulk_upload',
+        fullName: reused.fullName || cvStructured.fullName, email: normalizedEmail,
+        phoneNumber: reused.phoneNumber,
         currentRole: cvStructured.currentRole || null, yearsExperience: cvStructured.yearsExperienceTotal || null,
         cvStructured: JSON.parse(JSON.stringify(cvStructured).slice(0, 65000)) as any, cvType: 'full_cv',
         consentGiven: true, consentTimestamp: new Date(),
@@ -158,9 +177,7 @@ bulkUploadRouter.post('/bulk-upload', upload.array('cvFiles', 50), async (req: A
         deletionScheduledAt: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000),
       }})
 
-      if (jobId) {
-        axios.post(`${AI_URL}/api/v1/ai/score`, { candidateId: candidate.id, jobId }, { timeout: 60000 }).catch(() => {})
-      }
+      axios.post(`${AI_URL}/api/v1/ai/score-cv`, { candidateId: candidate.id, jobId: targetJobId }, { timeout: 60000 }).catch(() => {})
       processed++
     } catch (err: any) {
       logger.error(`Bulk upload error: ${file.originalname}`, { err: err.message })
@@ -223,6 +240,56 @@ bulkUploadRouter.get('/talent-pool/search', async (req: AuthRequest, res: Respon
 
     res.json({ success: true, data: deduped, meta: { total: deduped.length, beforeDedupe: candidates.length } })
   } catch {
+    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Failed' } })
+  }
+})
+
+// ── CV Inbox listing — unified list (v1.13.0) ─────────────────────────────────
+// One row per (jobId, person). NOT deduped — same person to two jobs shows up
+// twice, intentionally. status=all returns accepted + rejected in one call.
+bulkUploadRouter.get('/cv-inbox', async (req: AuthRequest, res: Response) => {
+  try {
+    const statusParam = (req.query.status as string) || 'all'
+    const status =
+      statusParam === 'rejected' ? 'rejected' :
+      statusParam === 'accepted' ? 'accepted' : 'all'
+    const maxDays = Math.min(parseInt((req.query.maxDays as string) || '7') || 7, 90)
+    const jobId   = (req.query.jobId as string) || undefined
+    const cutoff  = new Date(Date.now() - maxDays * 86400000)
+
+    const stageFilter: any =
+      status === 'rejected' ? { pipelineStage: 'rejected' } :
+      status === 'accepted' ? { pipelineStage: { in: ['applied', 'evaluated', 'shortlisted', 'interviewing', 'offered', 'hired'] } } :
+      {}
+
+    const candidates = await prisma.candidate.findMany({
+      where: {
+        agencyId:   req.user!.agencyId,
+        createdAt:  { gte: cutoff },
+        ...stageFilter,
+        ...(jobId ? { jobId } : {}),
+      },
+      orderBy: [
+        { cvScreeningScore: { sort: 'desc', nulls: 'last' } },
+        { createdAt: 'desc' },
+      ],
+      take: 200,
+      select: {
+        id: true, fullName: true, email: true, phoneNumber: true,
+        currentRole: true, yearsExperience: true,
+        cvScreeningScore: true, skillsScore: true, experienceScore: true,
+        cvMatchScore: true, hardFilterPass: true, hardFilterFailReason: true,
+        pipelineStage: true, rejectionReason: true, rejectedFromStage: true,
+        aiRecommendation: true, aiRecommendationReason: true,
+        scoringAttempts: true, sourceChannel: true, createdAt: true,
+        dataTags: true, jobId: true,
+        job: { select: { title: true, hiringCompany: true } },
+      },
+    })
+
+    res.json({ success: true, data: candidates, meta: { total: candidates.length, status } })
+  } catch (err: any) {
+    logger.error('CV inbox list error', { err: err?.message })
     res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Failed' } })
   }
 })

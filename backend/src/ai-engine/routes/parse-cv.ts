@@ -1,6 +1,6 @@
 // src/ai-engine/routes/parse-cv.ts
 import { Router } from 'express'
-import { callClaudeWithTool, CV_TOOLS, SCORE_TOOLS } from '../claude-client'
+import { callClaudeWithTool, CV_TOOLS } from '../claude-client'
 import { prisma } from '../../shared/db'
 import { logger } from '../../shared/logger'
 
@@ -36,6 +36,7 @@ ${cvText}
         data: {
           fullName: cvStructured.fullName,
           email: cvStructured.email,
+          phoneNumber: cvStructured.phone ? String(cvStructured.phone).slice(0, 30) : undefined,
           currentRole: cvStructured.currentRole,
           yearsExperience: cvStructured.yearsExperienceTotal,
           cvStructured,

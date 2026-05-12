@@ -158,7 +158,7 @@ export interface CandidateScores {
   hardFilterFailReason: string | null
 }
 
-export type AiRecommendation = 'advance' | 'hold' | 'reject'
+export type AiRecommendation = 'advance' | 'hold' | 'weak_match' | 'reject'
 export type AiRecommendationStage =
   | 'l1_cv_screened'
   | 'l2_wa_screened'

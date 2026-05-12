@@ -5,6 +5,11 @@ import { api } from '@/api/client'
 import apiClient from '@/api/client'
 import { toast } from 'react-hot-toast'
 
+type InboxRow = {
+  id: string
+  cvScreeningScore: number | null
+}
+
 const SOURCES = [
   { value: 'linkedin',        label: '💼 LinkedIn' },
   { value: 'bayt',            label: '🌐 Bayt.com' },
@@ -32,6 +37,15 @@ export default function CvInboxPage() {
   })
 
   const jobs = jobsRes?.data?.data || []
+
+  // Background poll the inbox endpoint just to drive the processing banner's
+  // "X of Y scored" counter after an upload. Nothing is rendered from this.
+  const { refetch: refetchInbox } = useQuery({
+    queryKey: ['cv-inbox'],
+    queryFn: () => api.get<InboxRow[]>(`/cv-inbox?status=all&maxDays=7`),
+    refetchInterval: processingCount > 0 ? 8000 : false,
+    enabled: processingCount > 0,
+  })
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -70,15 +84,16 @@ export default function CvInboxPage() {
         toast.success(`${data.data.queued} CVs queued — AI is parsing them now`)
         setUploadFiles([]); setPdplConsent(false)
         setProcessingCount(data.data.queued); setProcessedCount(0)
-        // Poll every 5 seconds to update progress count. Counts recently
-        // applied/evaluated candidates as a proxy for "this upload finished".
+        // Refetch the inbox list a few times — each fresh row that lands
+        // bumps the displayed count and surfaces it under the right tab.
         let polls = 0
         const interval = setInterval(async () => {
           polls++
           try {
-            const r = await api.get<any[]>('/talent-pool/search?maxDays=1')
-            const bulkUploaded = (r.data?.data || []).filter((c: any) => ['applied','evaluated'].includes(c.pipelineStage))
-            setProcessedCount(bulkUploaded.length)
+            const r = await refetchInbox()
+            const rows = (r.data?.data?.data as InboxRow[] | undefined) || []
+            const scored = rows.filter(c => c.cvScreeningScore != null)
+            setProcessedCount(Math.min(scored.length, data.data.queued))
           } catch {}
           if (polls >= 12) clearInterval(interval) // stop after 60s
         }, 5000)
@@ -196,13 +211,13 @@ export default function CvInboxPage() {
           <div>
             <p className="text-sm font-semibold" style={{ color: processedCount >= processingCount ? '#166534' : '#92400E' }}>
               {processedCount >= processingCount
-                ? `All ${processingCount} CVs processed — they are now in the matched job pipeline`
+                ? `All ${processingCount} CVs processed`
                 : `AI is parsing CVs... ${processedCount} of ${processingCount} done`}
             </p>
             <p className="text-xs text-gray-400 mt-0.5">
               {processedCount >= processingCount
-                ? 'Open the job from the Jobs board to review the new applicants'
-                : 'This takes about 10-15 seconds per CV. Page updates automatically.'}
+                ? 'Accepted candidates are in the job pipeline. Open the job to review.'
+                : 'This takes about 10-15 seconds per CV.'}
             </p>
           </div>
         </div>

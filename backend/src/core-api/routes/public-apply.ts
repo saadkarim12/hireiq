@@ -11,8 +11,8 @@ import { z } from 'zod'
 import { prisma } from '../../shared/db'
 import { logger } from '../../shared/logger'
 import { io } from '../index'
-import { applyHardFilter } from '../lib/cheap-filter'
 import { detectFileKind, ACCEPTED_MIME_BY_KIND } from '../lib/file-validation'
+import { fillContactFromHistory } from '../lib/contact-reuse'
 import { honeypotGuard } from '../middleware/public-honeypot'
 import { turnstileGuard } from '../middleware/public-turnstile'
 import {
@@ -190,45 +190,49 @@ publicApplyRouter.post(
 
       // Form-supplied yearsExperience overrides the parsed one when the candidate
       // explicitly entered a number (parser sometimes underestimates).
-      const yearsForFilter = Math.max(body.yearsExperience, cvStructured.yearsExperienceTotal || 0)
+      const yearsTotal = Math.max(body.yearsExperience, cvStructured.yearsExperienceTotal || 0)
 
-      // Cheap hard-filter — gates Claude scoring. Spam fails for free.
-      const filterResult = applyHardFilter({
-        job: { minExperienceYears: job.minExperienceYears, requiredSkills: job.requiredSkills || [] },
-        parsedCv: { yearsExperienceTotal: yearsForFilter, skills: cvStructured.skills },
-        cvText,
-      })
-
-      // Build the Candidate row. Both pass + fail get a row (auditable).
+      // v1.13.0: no cheap pre-filter. Every CV goes through Claude scoring.
+      // The 40% screening threshold + missing-contact check inside /score-cv
+      // is the only gate. Spam defense is handled by rate-limit + honeypot
+      // + Turnstile + magic-byte sniff upstream.
       const now = new Date()
       const phone = (body.phone || '').trim()
-      // waNumberHash is VARCHAR(64). Hash phone if present, else random.
       const phoneSeed = phone || `${body.email}:${now.getTime()}:${crypto.randomBytes(8).toString('hex')}`
       const waHash = crypto.createHash('sha256').update(phoneSeed).digest('hex').slice(0, 64)
       const waEnc  = phone ? Buffer.from(phone).toString('base64') : 'public_link'
 
-      const baseStageHistory: Array<Record<string, unknown>> = [{
-        from: null,
-        to: 'applied',
-        timestamp: now.toISOString(),
-        userId: null,
-        entryPath: 'public_link',
-      }]
+      const reused = await fillContactFromHistory(job.agencyId, {
+        fullName:     body.fullName,
+        email:        body.email,
+        phoneNumber:  phone || null,
+        waNumberHash: waHash,
+      })
 
-      const data: any = {
+      const candidate = await prisma.candidate.create({ data: {
         agencyId:          job.agencyId,
         jobId:             job.id,
         waNumberHash:      waHash,
         waNumberEncrypted: waEnc,
-        fullName:          body.fullName.slice(0, 300),
+        fullName:          (reused.fullName || body.fullName).slice(0, 300),
         email:             body.email,
+        phoneNumber:       reused.phoneNumber ? reused.phoneNumber.slice(0, 30) : null,
         currentRole:       (cvStructured.currentRole || null)?.slice?.(0, 300) ?? null,
-        yearsExperience:   yearsForFilter,
+        yearsExperience:   yearsTotal,
         cvStructured:      JSON.parse(JSON.stringify(cvStructured).slice(0, 50000)),
         cvType:            'full_cv',
         consentGiven:      true,
         consentTimestamp:  now,
         sourceChannel:     'public_link',
+        pipelineStage:     'applied',
+        conversationState: 'completed',
+        pipelineStageHistory: JSON.parse(JSON.stringify([{
+          from: null,
+          to: 'applied',
+          timestamp: now.toISOString(),
+          userId: null,
+          entryPath: 'public_link',
+        }])),
         deletionScheduledAt: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000),
         dataTags: JSON.parse(JSON.stringify({
           publicApply: true,
@@ -237,43 +241,21 @@ publicApplyRouter.post(
           submittedAt: now.toISOString(),
           ip: (req.ip || '').slice(0, 45),
         })),
-      }
-
-      if (filterResult.pass) {
-        data.pipelineStage         = 'applied'
-        data.hardFilterPass        = true
-        data.conversationState     = 'completed'
-        data.pipelineStageHistory  = JSON.parse(JSON.stringify(baseStageHistory))
-      } else {
-        data.pipelineStage         = 'rejected'
-        data.hardFilterPass        = false
-        data.hardFilterFailReason  = filterResult.reason
-        data.rejectedFromStage     = 'applied'
-        data.rejectionReason       = 'auto_filter'
-        data.conversationState     = 'completed'
-        data.pipelineStageHistory  = JSON.parse(JSON.stringify([
-          ...baseStageHistory,
-          { from: 'applied', to: 'rejected', timestamp: now.toISOString(), userId: null, reason: 'auto_filter' },
-        ]))
-      }
-
-      const candidate = await prisma.candidate.create({ data })
+      }})
 
       // Live socket update so the recruiter dashboard sees it without a refresh.
       try { io.to(`agency:${job.agencyId}`).emit('candidate:created', { candidateId: candidate.id, jobId: job.id }) } catch {}
 
-      // Fire async Claude scoring ONLY for filter-pass rows. Rejected rows
-      // already have a definitive reason; spending Claude on them is waste.
-      if (filterResult.pass) {
-        axios.post(`${AI_URL}/api/v1/ai/score-cv`, { candidateId: candidate.id, jobId: job.id }, { timeout: 60000 })
-          .catch(e => logger.warn('public apply: async score-cv failed', { candidateId: candidate.id, err: e?.message }))
-      }
+      // Fire async Claude scoring on every submission. score-cv writes the
+      // two component scores + cvScreeningScore and auto-routes to 'rejected'
+      // if score<40 or contact info is missing.
+      axios.post(`${AI_URL}/api/v1/ai/score-cv`, { candidateId: candidate.id, jobId: job.id }, { timeout: 60000 })
+        .catch(e => logger.warn('public apply: async score-cv failed', { candidateId: candidate.id, err: e?.message }))
 
       logger.info('public apply submitted', {
         token: token.slice(0, 8),
         jobId: job.id,
         candidateId: candidate.id,
-        passedFilter: filterResult.pass,
       })
 
       // ALWAYS generic — never reveal pass/fail to the candidate.
