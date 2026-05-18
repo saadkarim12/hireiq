@@ -61,6 +61,28 @@ export type Availability = 'Immediate' | '30 Days' | '60 Days' | '90 Days' | '90
 
 export type RejectionReason = 'overqualified' | 'underqualified' | 'salary_mismatch' | 'visa' | 'no_response' | 'other'
 export type AuthenticityFlag = 'none' | 'low' | 'medium' | 'high'
+
+// CV-fabrication scoring (v1.14.0). authenticityScore = weighted total of the
+// 6 signals below, authenticityBand drives the badge colour, full breakdown
+// powers the drawer's collapsible "Authenticity Breakdown" card.
+export type AuthenticityBand = 'authentic' | 'review' | 'fabricated'
+
+export interface AuthenticitySignal {
+  id:     number
+  name:   string
+  weight: number
+  score:  number
+  finding: string
+}
+
+export interface AuthenticityBreakdown {
+  score:       number
+  band:        AuthenticityBand
+  flag:        'none' | 'medium' | 'high'
+  signals:     AuthenticitySignal[]
+  topConcerns: string[]
+  rationale:   string
+}
 export type MessageDirection = 'inbound' | 'outbound'
 export type AnswerQuality = 'specific' | 'adequate' | 'vague' | 'evasive'
 
@@ -178,6 +200,9 @@ export interface CandidateSummary {
   visaStatus: string | null
   cvType: 'full_cv' | 'wa_profile' | 'no_submission' | null
   authenticityFlag: AuthenticityFlag
+  authenticityScore?: number | null
+  authenticityBand?: AuthenticityBand | null
+  authenticityBreakdown?: AuthenticityBreakdown | null
   scores: CandidateScores
   aiSummary: string | null
   dataTags: DataTags

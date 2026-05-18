@@ -36,6 +36,8 @@ interface CvReviewCardProps {
     salaryExpectation: number | null
     yearsExperience: number | null
     authenticityFlag: string
+    authenticityBand?: 'authentic' | 'review' | 'fabricated' | null
+    authenticityScore?: number | null
     hardFilterPass: boolean | null
     hardFilterFailReason: string | null
     dataTags: any
@@ -98,8 +100,25 @@ export function CvReviewCard({ candidate, jobCurrency = 'AED', onConfirm, onReje
         </div>
       )}
 
-      {/* AI alteration warning */}
-      {candidate.authenticityFlag === 'high' && (
+      {/* Authenticity banner — banded if v1.14.0 breakdown is available,
+          else falls back to the legacy high-flag banner. */}
+      {candidate.authenticityBand === 'fabricated' && (
+        <div className="bg-red-50 border-b border-red-200 px-4 py-2 flex items-center gap-2">
+          <span className="text-sm">🔴</span>
+          <span className="text-xs font-medium text-red-700">
+            Likely fabricated CV{candidate.authenticityScore != null ? ` (${candidate.authenticityScore}/100)` : ''} — strongly recommend manual verification
+          </span>
+        </div>
+      )}
+      {candidate.authenticityBand === 'review' && (
+        <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 flex items-center gap-2">
+          <span className="text-sm">🟡</span>
+          <span className="text-xs font-medium text-amber-700">
+            Authenticity flagged for review{candidate.authenticityScore != null ? ` (${candidate.authenticityScore}/100)` : ''} — open drawer for breakdown
+          </span>
+        </div>
+      )}
+      {!candidate.authenticityBand && candidate.authenticityFlag === 'high' && (
         <div className="bg-red-50 border-b border-red-200 px-4 py-2 flex items-center gap-2">
           <span className="text-sm">🤖</span>
           <span className="text-xs font-medium text-red-700">AI alteration suspected — review CV carefully</span>

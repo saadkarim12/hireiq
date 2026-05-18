@@ -76,6 +76,10 @@ scoreCandidateRoute.post('/score-cv', async (req, res) => {
     const autoReject = result.cvScreeningScore < 40
     const noContact = !candidate.email && !candidate.phoneNumber
 
+    // Authenticity verdict — derive legacy flag from band so existing UI surfaces still work.
+    const auth = result.authenticityResult
+    const legacyFlag = auth?.flag ?? result.authenticityFlag ?? 'none'
+
     await prisma.candidate.update({
       where: { id: candidateId },
       data: {
@@ -85,7 +89,10 @@ scoreCandidateRoute.post('/score-cv', async (req, res) => {
         cvMatchScore:         result.cvScreeningScore, // mirrored for downstream composite scoring
         hardFilterPass,
         hardFilterFailReason: hardFilterFailReason ? hardFilterFailReason.slice(0, 200) : null,
-        authenticityFlag:     result.authenticityFlag || 'none',
+        authenticityFlag:     legacyFlag as any,
+        authenticityScore:    auth?.score ?? null,
+        authenticityBand:     auth?.band ?? null,
+        authenticityBreakdown: auth ? (JSON.parse(JSON.stringify(auth)) as any) : null,
         ...(autoReject || noContact ? {
           pipelineStage:   'rejected' as const,
           rejectedFromStage: 'applied',
@@ -103,7 +110,8 @@ scoreCandidateRoute.post('/score-cv', async (req, res) => {
       },
     })
 
-    logger.info(`Scored CV-only ${candidateId}: cvScreening=${result.cvScreeningScore} (S${result.skillsScore}/E${result.experienceScore}) → rec=${rec?.recommendation || 'none'}${autoReject ? ' [auto-rejected <40]' : ''}${noContact ? ' [no contact]' : ''}`)
+    const authLog = auth ? ` auth=${auth.score}(${auth.band})` : ''
+    logger.info(`Scored CV-only ${candidateId}: cvScreening=${result.cvScreeningScore} (S${result.skillsScore}/E${result.experienceScore})${authLog} → rec=${rec?.recommendation || 'none'}${autoReject ? ' [auto-rejected <40]' : ''}${noContact ? ' [no contact]' : ''}`)
     res.json({ success: true, data: { ...result, aiRecommendation: rec, autoRejected: autoReject || noContact } })
   } catch (err: any) {
     logger.error('Score-CV error', { err: err.message })

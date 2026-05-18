@@ -4,6 +4,7 @@ import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { ScoreBar } from '@/components/candidates/ScoreBadge'
 import { AiRecommendationBadge } from '@/components/candidates/AiRecommendationBadge'
+import { AuthenticityBadge } from '@/components/candidates/AuthenticityBadge'
 import { formatDistanceToNow } from 'date-fns'
 import type { CandidateSummary } from '@/types'
 import clsx from 'clsx'
@@ -132,11 +133,16 @@ export function CandidateCard({ candidate, onClick, isDragging }: CandidateCardP
             {availability}
           </span>
         )}
-        {candidate.authenticityFlag && candidate.authenticityFlag !== 'none' && (
-          <span className="text-xs px-1.5 py-0.5 bg-orange-50 text-orange-600 rounded font-medium">
-            ⚠️ AI-polished
-          </span>
-        )}
+        {/* v1.14.0 — banded authenticity dot replaces the legacy "AI-polished"
+            chip. Falls back to the legacy chip for older candidates whose CVs
+            were scored before the breakdown shipped. */}
+        {(candidate as any).authenticityBand
+          ? <AuthenticityBadge band={(candidate as any).authenticityBand} score={(candidate as any).authenticityScore} dotOnly />
+          : candidate.authenticityFlag && candidate.authenticityFlag !== 'none' && (
+              <span className="text-xs px-1.5 py-0.5 bg-orange-50 text-orange-600 rounded font-medium">
+                ⚠️ AI-polished
+              </span>
+            )}
       </div>
 
       {/* Footer: time */}

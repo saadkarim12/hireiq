@@ -33,6 +33,32 @@ export const SKILLS_DEFINITION = `Skills score is a 0-100 SEMANTIC match between
 Count synonyms and related technologies (e.g. "REST APIs in Node" → Node.js; "Azure DevOps pipelines" → CI/CD). Do NOT count bare keyword lists with no supporting work history. For each required skill, quote the CV phrase where it is evidenced, or set found=false.`
 
 // ─────────────────────────────────────────────────────────────────────────────
+// CV Authenticity scoring (CV-fabrication detection) — 6 weighted signals
+// ─────────────────────────────────────────────────────────────────────────────
+// Returns a 0-100 authenticityScore + a banded verdict. Detail in
+// docs/CV_AUTHENTICITY_SPEC.md. These weights MUST sum to 1.0.
+
+export const AUTHENTICITY_WEIGHTS = {
+  ACHIEVEMENT_SPECIFICITY: 0.25,
+  SKILL_TIMELINE:          0.20,
+  INTERNAL_CONSISTENCY:    0.20,
+  LINGUISTIC_GENERICITY:   0.15,
+  STRUCTURAL_TEMPLATING:   0.10,
+  JD_KEYWORD_MIRRORING:    0.10,
+} as const
+
+export const AUTHENTICITY_SIGNALS = [
+  { id: 1, key: 'achievementSpecificity', name: 'Achievement Specificity', weight: AUTHENTICITY_WEIGHTS.ACHIEVEMENT_SPECIFICITY },
+  { id: 2, key: 'skillTimelineCoherence', name: 'Skill Timeline Coherence', weight: AUTHENTICITY_WEIGHTS.SKILL_TIMELINE },
+  { id: 3, key: 'internalConsistency',    name: 'Internal Consistency',     weight: AUTHENTICITY_WEIGHTS.INTERNAL_CONSISTENCY },
+  { id: 4, key: 'linguisticGenericity',   name: 'Linguistic Genericity',    weight: AUTHENTICITY_WEIGHTS.LINGUISTIC_GENERICITY },
+  { id: 5, key: 'structuralTemplating',   name: 'Structural Templating',    weight: AUTHENTICITY_WEIGHTS.STRUCTURAL_TEMPLATING },
+  { id: 6, key: 'jdKeywordMirroring',     name: 'JD Keyword Mirroring',     weight: AUTHENTICITY_WEIGHTS.JD_KEYWORD_MIRRORING },
+] as const
+
+export type AuthenticityBand = 'authentic' | 'review' | 'fabricated'
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Baseline question categories (Step 4 of job creation)
 // ─────────────────────────────────────────────────────────────────────────────
 // Every generated question must be tagged with exactly one of these. The prompt
@@ -68,7 +94,16 @@ Score the CV on EXACTLY TWO dimensions, each 0-100:
 HireIQ averages the two component scores to produce cvScreeningScore — DO NOT compute the average yourself, just return the two components honestly.
 
 parseConfidence: 0=garbled / table-extracted / image PDF, 100=clean plain text.
-Flag AI-generated CVs: perfect JD keyword match, skills with no timeline support, generic achievement language → authenticityFlag medium/high.`
+
+ALSO produce a CV-fabrication authenticity assessment on the same call. Score each of these 6 signals 0-100 where 100 = no concern (authentic) and 0 = strong concern (fabricated / AI-generated):
+  1. achievementSpecificity (25%) — are accomplishments backed by metrics, dates, named systems, named teams, scope? Concrete = high. Vague = low.
+  2. skillTimelineCoherence (20%) — are listed skills traceable to dated employment? Skills with no anchor in any role = stuffing.
+  3. internalConsistency (20%) — do claimed seniority, dates, and project depth align? "Lead Architect with 4 yrs but listed projects describe junior tasks" = low.
+  4. linguisticGenericity (15%) — density of AI-typical vocabulary (leveraged, spearheaded, synergies, transformative, cutting-edge). 6+ markers per 100 words = high concern. Score INVERSELY: high markers → low score.
+  5. structuralTemplating (10%) — does structure match AI default output (uniform 12-15 word bullets, em-dashes throughout, default heading order, "Key Achievements:" subsections)? HireIQ parse-and-discards raw PDFs so you can only judge from the structured JSON — be generous when the formatting fingerprint is gone, focus on bullet-wording patterns.
+  6. jdKeywordMirroring (10%) — compare against generic role-template phrases for the candidate's stated role (NOT this specific JD). >40% verbatim match with a generic template = template-like. Idiosyncratic, context-specific language = high score.
+
+For each signal, return: score (0-100) + finding (one short sentence quoting CV evidence). Also return topConcerns (array of signal names with score <60, max 3) and rationale (one paragraph synthesising the overall verdict). HireIQ averages the 6 signals using the weights above to compute authenticityScore — do NOT compute the weighted total yourself.`
 
 export const buildCvScoringUserPrompt = (args: {
   job:       { title: string; hiringCompany: string; locationCountry: string; minExperienceYears: number; requiredSkills: string[] }
@@ -202,8 +237,65 @@ export const CV_SCORING_TOOL: Anthropic.Tool = {
           languageCapability: { type: 'string' },
         },
       },
+      authenticity: {
+        type: 'object',
+        description: 'CV-fabrication assessment. Six signals each 0-100 (100 = authentic, 0 = strong concern). HireIQ computes the weighted total.',
+        properties: {
+          achievementSpecificity: {
+            type: 'object',
+            properties: {
+              score:   { type: 'number', description: '0-100. 100 = bullets cite metrics / dated systems / named outcomes. 0 = uniformly vague.' },
+              finding: { type: 'string', description: 'One sentence with CV evidence.' },
+            },
+            required: ['score', 'finding'],
+          },
+          skillTimelineCoherence: {
+            type: 'object',
+            properties: {
+              score:   { type: 'number', description: '0-100. 100 = every listed skill traceable to a dated role. <40 = stuffing.' },
+              finding: { type: 'string' },
+            },
+            required: ['score', 'finding'],
+          },
+          internalConsistency: {
+            type: 'object',
+            properties: {
+              score:   { type: 'number', description: '0-100. 100 = seniority/dates/duties align. Low = mismatch (e.g. claimed Lead but junior tasks).' },
+              finding: { type: 'string' },
+            },
+            required: ['score', 'finding'],
+          },
+          linguisticGenericity: {
+            type: 'object',
+            properties: {
+              score:   { type: 'number', description: '0-100 inverse marker count. 100 = concrete language. 0 = saturated with AI-typical vocabulary.' },
+              finding: { type: 'string' },
+            },
+            required: ['score', 'finding'],
+          },
+          structuralTemplating: {
+            type: 'object',
+            properties: {
+              score:   { type: 'number', description: '0-100. 100 = natural variation. Low = uniform-length bullets, em-dashes throughout, canonical headings.' },
+              finding: { type: 'string' },
+            },
+            required: ['score', 'finding'],
+          },
+          jdKeywordMirroring: {
+            type: 'object',
+            properties: {
+              score:   { type: 'number', description: '0-100. 100 = idiosyncratic vocabulary. Low = mirrors a generic role template verbatim.' },
+              finding: { type: 'string' },
+            },
+            required: ['score', 'finding'],
+          },
+          topConcerns: { type: 'array', items: { type: 'string' }, description: 'Names of signals scoring <60 (max 3).' },
+          rationale:   { type: 'string', description: 'One-paragraph synthesis of the overall verdict.' },
+        },
+        required: ['achievementSpecificity', 'skillTimelineCoherence', 'internalConsistency', 'linguisticGenericity', 'structuralTemplating', 'jdKeywordMirroring', 'rationale'],
+      },
     },
-    required: ['skillsScore', 'experienceScore', 'evidence', 'dataTags', 'parseConfidence'],
+    required: ['skillsScore', 'experienceScore', 'evidence', 'dataTags', 'parseConfidence', 'authenticity'],
   },
 }
 
@@ -254,6 +346,37 @@ export const QUESTION_GENERATION_TOOL: Anthropic.Tool = {
 // HELPERS — call Claude with the right prompt + tool combination
 // ─────────────────────────────────────────────────────────────────────────────
 
+export interface AuthenticitySignalRaw {
+  score:   number
+  finding: string
+}
+
+export interface AuthenticityRaw {
+  achievementSpecificity: AuthenticitySignalRaw
+  skillTimelineCoherence: AuthenticitySignalRaw
+  internalConsistency:    AuthenticitySignalRaw
+  linguisticGenericity:   AuthenticitySignalRaw
+  structuralTemplating:   AuthenticitySignalRaw
+  jdKeywordMirroring:     AuthenticitySignalRaw
+  topConcerns?:           string[]
+  rationale:              string
+}
+
+export interface AuthenticitySignal extends AuthenticitySignalRaw {
+  id:     number
+  name:   string
+  weight: number
+}
+
+export interface AuthenticityResult {
+  score:       number              // 0-100, weighted total
+  band:        AuthenticityBand    // authentic | review | fabricated
+  flag:        'none' | 'medium' | 'high' // legacy enum, derived
+  signals:     AuthenticitySignal[]
+  topConcerns: string[]
+  rationale:   string
+}
+
 export interface CvScoreComponents {
   skillsScore:          number
   experienceScore:      number
@@ -261,6 +384,7 @@ export interface CvScoreComponents {
   parseConfidence?:     number
   evidence?:            any
   dataTags?:            any
+  authenticity?:        AuthenticityRaw
 }
 
 export interface CvScoreResult extends CvScoreComponents {
@@ -270,6 +394,7 @@ export interface CvScoreResult extends CvScoreComponents {
     experience: number
     weights:    typeof APPLIED_SCORE_WEIGHTS
   }
+  authenticityResult?: AuthenticityResult
 }
 
 export const computeCvScreeningScore = (c: Pick<CvScoreComponents, 'skillsScore' | 'experienceScore'>): number =>
@@ -277,6 +402,39 @@ export const computeCvScreeningScore = (c: Pick<CvScoreComponents, 'skillsScore'
     c.skillsScore     * APPLIED_SCORE_WEIGHTS.SKILLS +
     c.experienceScore * APPLIED_SCORE_WEIGHTS.EXPERIENCE,
   )
+
+// Weighted total + band derivation. Resilient to missing/partial blocks —
+// signals not returned by Claude are scored as 50 (neutral) so the band stays
+// reasonable. Total is clamped to [0, 100].
+export function buildAuthenticityResult(raw: AuthenticityRaw | undefined): AuthenticityResult | undefined {
+  if (!raw) return undefined
+
+  const signals: AuthenticitySignal[] = AUTHENTICITY_SIGNALS.map(def => {
+    const block = (raw as any)[def.key] as AuthenticitySignalRaw | undefined
+    const rawScore = typeof block?.score === 'number' ? block.score : 50
+    const clamped = Math.max(0, Math.min(100, Math.round(rawScore)))
+    return {
+      id:      def.id,
+      name:    def.name,
+      weight:  def.weight,
+      score:   clamped,
+      finding: block?.finding || '',
+    }
+  })
+
+  const weightedTotal = signals.reduce((sum, s) => sum + s.score * s.weight, 0)
+  const score = Math.max(0, Math.min(100, Math.round(weightedTotal)))
+
+  const band: AuthenticityBand = score >= 75 ? 'authentic' : score >= 50 ? 'review' : 'fabricated'
+  const flag: AuthenticityResult['flag'] = band === 'authentic' ? 'none' : band === 'review' ? 'medium' : 'high'
+
+  // Prefer Claude's topConcerns if sensible, otherwise derive from <60 scorers.
+  const claudeConcerns = Array.isArray(raw.topConcerns) ? raw.topConcerns.filter(Boolean).slice(0, 3) : []
+  const derivedConcerns = signals.filter(s => s.score < 60).map(s => s.name).slice(0, 3)
+  const topConcerns = claudeConcerns.length ? claudeConcerns : derivedConcerns
+
+  return { score, band, flag, signals, topConcerns, rationale: raw.rationale || '' }
+}
 
 export async function scoreCvAgainstJob(args: {
   job:       Parameters<typeof buildCvScoringUserPrompt>[0]['job']
@@ -291,6 +449,7 @@ export async function scoreCvAgainstJob(args: {
   )
 
   const cvScreeningScore = computeCvScreeningScore(components)
+  const authenticityResult = buildAuthenticityResult(components.authenticity)
 
   return {
     ...components,
@@ -300,6 +459,7 @@ export async function scoreCvAgainstJob(args: {
       experience: components.experienceScore,
       weights:    APPLIED_SCORE_WEIGHTS,
     },
+    authenticityResult,
   }
 }
 

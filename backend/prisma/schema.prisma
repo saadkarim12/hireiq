@@ -222,6 +222,9 @@ model Candidate {
   cvStructured                Json?             @map("cv_structured")
   cvType                      String?           @map("cv_type") @db.VarChar(20)
   authenticityFlag            AuthenticityFlag  @default(none) @map("authenticity_flag")
+  authenticityScore           Int?              @map("authenticity_score") @db.SmallInt
+  authenticityBand            String?           @map("authenticity_band") @db.VarChar(20)
+  authenticityBreakdown       Json?             @map("authenticity_breakdown")
   commitmentScore             Int?              @map("commitment_score") @db.SmallInt
   cvMatchScore                Int?              @map("cv_match_score") @db.SmallInt
   experienceScore             Int?              @map("experience_score") @db.SmallInt

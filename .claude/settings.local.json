@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(PGPASSWORD=hireiq_dev_2026 psql -h localhost -p 5433 -U hireiq -d hireiq -c \"SELECT relkind FROM pg_class WHERE relname='candidates' AND relnamespace=\\(SELECT oid FROM pg_namespace WHERE nspname='public'\\);\")",
+      "Bash(PGPASSWORD=hireiq_dev_2026 psql -h localhost -p 5433 -U hireiq -d hireiq -c \"SELECT column_name, data_type, character_maximum_length FROM information_schema.columns WHERE table_name='candidates' AND column_name='current_role';\")",
+      "Bash(PGPASSWORD=hireiq_dev_2026 psql -h localhost -p 5433 -U hireiq -d hireiq -c \"SELECT current_role::bytea, full_name::bytea FROM candidates WHERE id='906801eb-b964-46b1-94f8-35a4de51d42f';\")",
+      "Bash(PGPASSWORD=hireiq_dev_2026 psql *)",
+      "Bash(lsof -ti:3001)",
+      "Bash(xargs kill -9)",
+      "Bash(npx ts-node *)",
+      "Bash(curl -s http://localhost:3001/health)",
+      "Read(//private/tmp/**)",
+      "Bash(curl -s -X POST http://localhost:3001/api/v1/public/jobs/senior-finance-analyst-damac/apply -F 'fullName=Final Verify' -F email=verify.__CMDSUB_OUTPUT__@example.com -F phone=+971501230055 -F consent=true -F expectedSalary=28000 -F noticePeriodDays=60 -F 'currentRole=Senior Cloud Engineer' -F yearsExperience=9 -F currentSalary=24000 -F visaStatus=residence_transferable -F 'currentCity=Abu Dhabi' -F 'answers=[]' -F 'cv=@/tmp/test_cv.pdf;type=application/pdf')",
+      "Bash(python3 -m json.tool)",
+      "Bash(npx tsc *)",
+      "Bash(export PATH=\"$PATH:/Applications/Docker.app/Contents/Resources/bin\")",
+      "Bash(docker run *)",
+      "Bash(docker exec *)",
+      "Bash(npx prisma *)"
+    ]
+  }
+}

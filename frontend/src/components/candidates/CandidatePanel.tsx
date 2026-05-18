@@ -20,6 +20,7 @@ import apiClient from '@/api/client'
 import { ScoreBadge } from './ScoreBadge'
 import { PipelineStageBadge } from './PipelineStageBadge'
 import { AiRecommendationBadge } from './AiRecommendationBadge'
+import { AuthenticityBadge, AuthenticityBreakdownCard } from './AuthenticityBadge'
 import {
   XMarkIcon, DocumentArrowDownIcon, ExclamationTriangleIcon,
   CheckCircleIcon, HandThumbDownIcon, PauseCircleIcon,
@@ -211,7 +212,7 @@ export function CandidatePanel({
       <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-40 transition-opacity" onClick={onClose} />
 
       {/* Panel */}
-      <div className="fixed inset-y-0 right-0 w-full max-w-2xl bg-white shadow-panel z-50 flex flex-col slide-panel-enter">
+      <div className="fixed inset-y-0 right-0 w-full max-w-2xl bg-white shadow-panel z-50 grid slide-panel-enter" style={{ gridTemplateRows: 'auto 1fr auto' }}>
 
         {/* ── Header ──────────────────────────────────────────────────────── */}
         <div className="flex items-start justify-between px-6 py-5 border-b border-gray-200 flex-shrink-0">
@@ -246,9 +247,15 @@ export function CandidatePanel({
           </button>
         </div>
 
+        {/* Single scrolling region for score + tabs + body so the expanded
+            AuthenticityBreakdownCard (and any other long score-section content)
+            scrolls instead of pushing the body off-screen. Grid row 2 is `1fr`
+            with `min-height: 0` so this child can shrink and scroll. */}
+        <div className="overflow-y-auto" style={{ minHeight: 0 }}>
+
         {/* ── Score Section ──────────────────────────────────────────────── */}
         {candidate && (
-          <div className="px-6 py-4 bg-gray-50 border-b border-gray-200 flex-shrink-0">
+          <div className="px-6 py-4 bg-gray-50 border-b border-gray-200">
             {context === 'talent_pool' && jobId ? (
               // v1.11.3 / v1.11.4 — Recruiter-initiated re-score against the
               // selected TP job. Until the recruiter clicks "Re-parse & re-score",
@@ -481,15 +488,26 @@ export function CandidatePanel({
               </p>
             )}
 
-            {/* Authenticity flag (CV-polished warning) */}
-            {candidate.authenticityFlag && candidate.authenticityFlag !== 'none' && !isScreeningInProgress && (
-              <div className="mt-3 flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                <ExclamationTriangleIcon className="w-4 h-4 text-amber-500 flex-shrink-0" />
-                <p className="text-xs text-amber-700 font-medium">
-                  This CV shows {candidate.authenticityFlag} signs of AI optimisation — verify key claims in interview
-                </p>
-              </div>
-            )}
+            {/* Authenticity breakdown — banded badge + per-signal table. Falls back
+                to the legacy single-line warning only when the new breakdown is
+                missing (e.g. CVs scored before v1.14.0). */}
+            {!isScreeningInProgress && (() => {
+              const breakdown = (candidate as any).authenticityBreakdown
+              if (breakdown && breakdown.signals?.length) {
+                return <AuthenticityBreakdownCard data={breakdown} />
+              }
+              if (candidate.authenticityFlag && candidate.authenticityFlag !== 'none') {
+                return (
+                  <div className="mt-3 flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                    <ExclamationTriangleIcon className="w-4 h-4 text-amber-500 flex-shrink-0" />
+                    <p className="text-xs text-amber-700 font-medium">
+                      This CV shows {candidate.authenticityFlag} signs of AI optimisation — verify key claims in interview
+                    </p>
+                  </div>
+                )
+              }
+              return null
+            })()}
 
             {/* AI Recommendation — click to expand (8.2.a) */}
             {(() => {
@@ -549,7 +567,7 @@ export function CandidatePanel({
 
         {/* ── Tabs (pipeline only) ───────────────────────────────────────── */}
         {useTabs && (
-          <div className="flex border-b border-gray-200 px-6 flex-shrink-0">
+          <div className="flex border-b border-gray-200 px-6 bg-white sticky top-0 z-10">
             {(['summary', 'transcript', 'cv'] as Tab[]).map((tab) => (
               <button
                 key={tab}
@@ -568,7 +586,7 @@ export function CandidatePanel({
         )}
 
         {/* ── Body ───────────────────────────────────────────────────────── */}
-        <div className="flex-1 overflow-y-auto">
+        <div>
           {isLoading && !candidate ? (
             <div className="p-6 space-y-4">
               {[1,2,3].map(i => <div key={i} className="skeleton h-20 rounded-lg" />)}
@@ -716,6 +734,7 @@ export function CandidatePanel({
           ) : null}
         </div>
 
+        </div>
         {/* ── Action Buttons ─────────────────────────────────────────────── */}
         {candidate && !isLoading && (
           <div className="border-t border-gray-200 px-6 py-4 bg-white flex-shrink-0">
